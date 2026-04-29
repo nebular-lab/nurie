@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { Stack } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,30 +18,62 @@ const INITIAL_REGION = {
 
 export default function Index() {
   const mapRef = useRef<MapView>(null);
+  const mapReadyRef = useRef(false);
+  const pendingRegionRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const insets = useSafeAreaInsets();
 
-  const recenterToCurrent = async () => {
-    try {
-      const loc = await Location.getCurrentPositionAsync({});
-      mapRef.current?.animateToRegion(
-        {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          ...ZOOM_16,
-        },
-        500,
-      );
-    } catch {}
+  const animateTo = useCallback((latitude: number, longitude: number) => {
+    if (!mapReadyRef.current) {
+      pendingRegionRef.current = { latitude, longitude };
+      return;
+    }
+    mapRef.current?.animateToRegion(
+      { latitude, longitude, ...ZOOM_16 },
+      500,
+    );
+  }, []);
+
+  const handleMapReady = () => {
+    mapReadyRef.current = true;
+    const pending = pendingRegionRef.current;
+    if (pending) {
+      pendingRegionRef.current = null;
+      animateTo(pending.latitude, pending.longitude);
+    }
   };
+
+  const recenterToCurrent = useCallback(async () => {
+    try {
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      animateTo(loc.coords.latitude, loc.coords.longitude);
+    } catch (e) {
+      console.warn('[location] getCurrentPositionAsync failed', e);
+    }
+  }, [animateTo]);
 
   useEffect(() => {
     (async () => {
       const fg = await Location.requestForegroundPermissionsAsync();
-      if (fg.status !== 'granted') return;
+      if (fg.status !== 'granted') {
+        console.warn('[location] foreground permission not granted', fg.status);
+        return;
+      }
       await Location.requestBackgroundPermissionsAsync();
+
+      try {
+        const last = await Location.getLastKnownPositionAsync();
+        if (last) {
+          animateTo(last.coords.latitude, last.coords.longitude);
+        }
+      } catch (e) {
+        console.warn('[location] getLastKnownPositionAsync failed', e);
+      }
+
       await recenterToCurrent();
     })();
-  }, []);
+  }, [animateTo, recenterToCurrent]);
 
   return (
     <>
@@ -51,6 +83,7 @@ export default function Index() {
         style={styles.map}
         initialRegion={INITIAL_REGION}
         showsUserLocation
+        onMapReady={handleMapReady}
       />
       <Pressable
         style={[styles.recenterButton, { bottom: insets.bottom + 24 }]}
