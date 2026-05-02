@@ -1,35 +1,55 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import MapView, { Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDisplayedSegments } from '@/lib/hooks/useDisplayedSegments';
-import { useMapCamera } from '@/lib/hooks/useMapCamera';
-import { useMapCentering } from '@/lib/hooks/useMapCentering';
+import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
+import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
+import { useRecenterMap } from '@/lib/hooks/useRecenterMap';
 import { useStartLocationTracking } from '@/lib/hooks/useStartLocationTracking';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 
-const INITIAL_REGION = {
-  latitude: 35.6812,
-  longitude: 139.7671,
-  latitudeDelta: 0.005,
-  longitudeDelta: 0.005,
-};
-
 export default function Index() {
+  const initial = useInitialLocation();
   const { mapRef, centerMapOn, onMapReady } = useMapCamera();
   const trackPoints = useStoredTrackPoints();
   const displayedSegments = useDisplayedSegments(trackPoints);
-  const recenterMap = useMapCentering(centerMapOn);
+  const recenterMap = useRecenterMap(centerMapOn);
   const insets = useSafeAreaInsets();
 
   useStartLocationTracking();
+
+  if (initial.status === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (initial.status === 'error') {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>現在地を取得できませんでした</Text>
+        <Pressable style={styles.retryButton} onPress={initial.retry}>
+          <Text style={styles.retryText}>再試行</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <>
       <MapView
         ref={mapRef}
         style={styles.map}
-        initialRegion={INITIAL_REGION}
+        initialRegion={{ ...initial.coords, ...MAP_ZOOM_DELTA }}
         showsUserLocation
         onMapReady={onMapReady}
       >
@@ -56,6 +76,29 @@ export default function Index() {
 const styles = StyleSheet.create({
   map: {
     flex: 1,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#fff',
+  },
+  errorText: {
+    fontSize: 16,
+    marginBottom: 16,
+    color: '#333',
+  },
+  retryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   recenterButton: {
     position: 'absolute',

@@ -7,7 +7,7 @@
 import { useCallback, useRef } from 'react';
 import type MapView from 'react-native-maps';
 
-const ZOOM_16 = {
+export const MAP_ZOOM_DELTA = {
   latitudeDelta: 0.005,
   longitudeDelta: 0.005,
 };
@@ -24,7 +24,7 @@ export function useMapCamera() {
       pendingRegionRef.current = { latitude, longitude };
       return;
     }
-    mapRef.current?.animateToRegion({ latitude, longitude, ...ZOOM_16 }, 500);
+    mapRef.current?.animateToRegion({ latitude, longitude, ...MAP_ZOOM_DELTA }, 500);
   }, []);
 
   const onMapReady = useCallback(() => {
@@ -32,7 +32,7 @@ export function useMapCamera() {
     const region = pendingRegionRef.current;
     pendingRegionRef.current = null;
     if (region) {
-      mapRef.current?.animateToRegion({ ...region, ...ZOOM_16 }, 500);
+      mapRef.current?.animateToRegion({ ...region, ...MAP_ZOOM_DELTA }, 500);
     }
   }, []);
 
