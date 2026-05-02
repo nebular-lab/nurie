@@ -5,6 +5,9 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import MapView from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { getAllPoints } from '@/lib/db';
+import { startTracking } from '@/lib/locationTask';
+
 const ZOOM_16 = {
   latitudeDelta: 0.005,
   longitudeDelta: 0.005,
@@ -72,6 +75,19 @@ export default function Index() {
       }
 
       await recenterToCurrent();
+
+      try {
+        await startTracking();
+      } catch (e) {
+        console.warn('[track] startTracking failed', e);
+      }
+
+      try {
+        const all = await getAllPoints();
+        console.log('[track] points count =', all.length);
+      } catch (e) {
+        console.warn('[track] getAllPoints failed', e);
+      }
     })();
   }, [animateTo, recenterToCurrent]);
 

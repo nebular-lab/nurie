@@ -44,7 +44,8 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "散歩した経路を地図に記録するため、現在地を使用します。",
-          "locationAlwaysAndWhenInUsePermission": "アプリを閉じていても散歩の経路を記録するため、現在地への常時アクセスを許可してください。"
+          "locationAlwaysAndWhenInUsePermission": "アプリを閉じていても散歩の経路を記録するため、現在地への常時アクセスを許可してください。",
+          "isIosBackgroundLocationEnabled": true
         }
       ]
     ],
