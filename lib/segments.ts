@@ -14,6 +14,7 @@ const WALKING_MAX_KMH = 12;
 const WALKING_MAX_SPEED_MS = (WALKING_MAX_KMH * 1000) / 3600;
 
 export type Segment = {
+  startedAt: number;
   coords: { latitude: number; longitude: number }[];
   isWalking: boolean;
   date: string;
@@ -47,6 +48,7 @@ export function buildSegments(points: Point[]): Segment[] {
       current.coords.push({ latitude: b.lat, longitude: b.lng });
     } else {
       current = {
+        startedAt: a.recordedAt,
         coords: [
           { latitude: a.lat, longitude: a.lng },
           { latitude: b.lat, longitude: b.lng },

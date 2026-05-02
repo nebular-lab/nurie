@@ -1,5 +1,5 @@
 // MapView の命令型 API (animateToRegion) を React 風のフックに包む。
-// MapView が onMapReady を発火する前に animateTo が呼ばれることがあるので、
+// MapView が onMapReady を発火する前に centerMapOn が呼ばれることがあるので、
 // その場合は ref に積んでおき、ready になった時点で実行する (キュー)。
 // pending の保存に state ではなく ref を使うのは、これが描画に関係しない一時的な値で、
 // 更新で再レンダリングを起こす必要がないため。
@@ -19,7 +19,7 @@ export function useMapCamera() {
   const readyRef = useRef(false);
   const pendingRegionRef = useRef<Coord | null>(null);
 
-  const animateTo = useCallback((latitude: number, longitude: number) => {
+  const centerMapOn = useCallback((latitude: number, longitude: number) => {
     if (!readyRef.current) {
       pendingRegionRef.current = { latitude, longitude };
       return;
@@ -36,5 +36,5 @@ export function useMapCamera() {
     }
   }, []);
 
-  return { mapRef, animateTo, onMapReady };
+  return { mapRef, centerMapOn, onMapReady };
 }
