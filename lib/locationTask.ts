@@ -1,13 +1,25 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
-import { insertPoint } from './db';
+import { getRecentPoints, insertPoint } from './db';
+import { haversineMeters } from './geo';
 
 const TASK_NAME = 'nurie-location-tracking';
+const MIN_DISTANCE_M = 8;
 
 type LocationTaskData = {
   locations: Location.LocationObject[];
 };
+
+let lastSaved: { lat: number; lng: number } | null = null;
+
+async function ensureLastSavedLoaded() {
+  if (lastSaved !== null) return;
+  const recent = await getRecentPoints(1);
+  if (recent.length > 0) {
+    lastSaved = { lat: recent[0].lat, lng: recent[0].lng };
+  }
+}
 
 TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
   if (error) {
@@ -15,13 +27,24 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
     return;
   }
   if (!data) return;
+
+  await ensureLastSavedLoaded();
+
   for (const loc of data.locations) {
+    const candidate = {
+      lat: loc.coords.latitude,
+      lng: loc.coords.longitude,
+    };
+    if (lastSaved && haversineMeters(lastSaved, candidate) < MIN_DISTANCE_M) {
+      continue;
+    }
     try {
       await insertPoint({
-        lat: loc.coords.latitude,
-        lng: loc.coords.longitude,
+        lat: candidate.lat,
+        lng: candidate.lng,
         recordedAt: loc.timestamp,
       });
+      lastSaved = candidate;
     } catch (e) {
       console.warn('[task] insert failed', e);
     }
