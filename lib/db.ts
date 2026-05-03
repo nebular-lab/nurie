@@ -29,6 +29,18 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
       recorded_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_points_recorded_at ON points (recorded_at);
+    CREATE TABLE IF NOT EXISTS osm_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      home_lat REAL NOT NULL,
+      home_lng REAL NOT NULL,
+      radius_m INTEGER NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      payload TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   return db;
 }
@@ -78,4 +90,61 @@ export async function getAllPoints(): Promise<Point[]> {
     'SELECT id, lat, lng, recorded_at FROM points ORDER BY recorded_at ASC',
   );
   return rows.map(rowToPoint);
+}
+
+export type OsmCacheRow = {
+  homeLat: number;
+  homeLng: number;
+  radiusM: number;
+  fetchedAt: number;
+  payload: string;
+};
+
+export async function getOsmCache(): Promise<OsmCacheRow | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    home_lat: number;
+    home_lng: number;
+    radius_m: number;
+    fetched_at: number;
+    payload: string;
+  }>('SELECT home_lat, home_lng, radius_m, fetched_at, payload FROM osm_cache WHERE id = 1');
+  if (!row) return null;
+  return {
+    homeLat: row.home_lat,
+    homeLng: row.home_lng,
+    radiusM: row.radius_m,
+    fetchedAt: row.fetched_at,
+    payload: row.payload,
+  };
+}
+
+export async function putOsmCache(entry: OsmCacheRow): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO osm_cache (id, home_lat, home_lng, radius_m, fetched_at, payload) VALUES (1, ?, ?, ?, ?, ?)',
+    entry.homeLat,
+    entry.homeLng,
+    entry.radiusM,
+    entry.fetchedAt,
+    entry.payload,
+  );
+}
+
+export async function getSetting(key: string): Promise<string | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    key,
+  );
+  return row?.value ?? null;
+}
+
+export async function putSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    key,
+    value,
+  );
 }
