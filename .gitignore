@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (.env.example だけコミット、実際の値が入る .env / .env.local 系は ignore)
+.env
 .env*.local
 
 # typescript
@@ -44,3 +45,4 @@ app-example
 
 # Claude Code session state
 .claude/
+tmp/
