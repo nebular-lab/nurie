@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MAX_BUFFER_M, MIN_BUFFER_M } from '@/lib/constants';
 import { useBufferSetting } from '@/lib/hooks/useBufferSetting';
 import { useCoverage } from '@/lib/hooks/useCoverage';
-import { useDisplayedSegments } from '@/lib/hooks/useDisplayedSegments';
 import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
 import { useOsmRoads } from '@/lib/hooks/useOsmRoads';
@@ -20,14 +19,13 @@ import { useRecenterMap } from '@/lib/hooks/useRecenterMap';
 import { useStartLocationTracking } from '@/lib/hooks/useStartLocationTracking';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 
-const WALKED_ROAD_COLOR = '#34C759';
+const WALKED_ROAD_COLOR = '#FF3B30';
 const UNWALKED_ROAD_COLOR = 'rgba(120, 120, 120, 0.35)';
 
 export default function Index() {
   const initial = useInitialLocation();
   const { mapRef, centerMapOn, onMapReady } = useMapCamera();
   const trackPoints = useStoredTrackPoints();
-  const displayedSegments = useDisplayedSegments(trackPoints);
   const recenterMap = useRecenterMap(centerMapOn);
   const insets = useSafeAreaInsets();
   const osm = useOsmRoads();
@@ -42,19 +40,8 @@ export default function Index() {
 
   const roadOverlays = useMemo(() => {
     if (!coverage) return null;
-    return coverage.roads.map((rc, idx) => {
-      const walked = rc.walkedSegments.map((seg, j) => (
-        <Polyline
-          key={`w-${rc.road.id}-${j}`}
-          coordinates={seg.map(([lng, lat]) => ({
-            latitude: lat,
-            longitude: lng,
-          }))}
-          strokeColor={WALKED_ROAD_COLOR}
-          strokeWidth={6}
-        />
-      ));
-      const unwalked = rc.unwalkedSegments.map((seg, j) => (
+    return coverage.roads.flatMap((rc) => [
+      ...rc.unwalkedSegments.map((seg, j) => (
         <Polyline
           key={`u-${rc.road.id}-${j}`}
           coordinates={seg.map(([lng, lat]) => ({
@@ -64,14 +51,19 @@ export default function Index() {
           strokeColor={UNWALKED_ROAD_COLOR}
           strokeWidth={3}
         />
-      ));
-      return (
-        <View key={`r-${rc.road.id}-${idx}`} pointerEvents="none">
-          {unwalked}
-          {walked}
-        </View>
-      );
-    });
+      )),
+      ...rc.walkedSegments.map((seg, j) => (
+        <Polyline
+          key={`w-${rc.road.id}-${j}`}
+          coordinates={seg.map(([lng, lat]) => ({
+            latitude: lat,
+            longitude: lng,
+          }))}
+          strokeColor={WALKED_ROAD_COLOR}
+          strokeWidth={6}
+        />
+      )),
+    ]);
   }, [coverage]);
 
   if (initial.status === 'loading') {
@@ -103,15 +95,6 @@ export default function Index() {
         onMapReady={onMapReady}
       >
         {roadOverlays}
-        {displayedSegments.map((seg) => (
-          <Polyline
-            key={seg.startedAt}
-            coordinates={seg.coords}
-            strokeColor={seg.color}
-            strokeWidth={2}
-            lineDashPattern={seg.dashPattern}
-          />
-        ))}
       </MapView>
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
