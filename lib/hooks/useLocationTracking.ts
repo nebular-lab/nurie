@@ -12,7 +12,7 @@ export type LocationTrackingState =
   | { status: 'tracking' }
   | { status: 'error'; message: string };
 
-export function useStartLocationTracking(): LocationTrackingState {
+export function useLocationTracking(): LocationTrackingState {
   const [state, setState] = useState<LocationTrackingState>({ status: 'starting' });
 
   useEffect(() => {

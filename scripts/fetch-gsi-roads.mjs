@@ -1,5 +1,5 @@
-// GSI ベクトルタイル (experimental_bvmap) から自宅周辺の道路中心線を取得して
-// lib/osmData.json と同じ形式で書き出す。
+// GSI ベクトルタイル (experimental_bvmap) から自宅周辺の歩ける道路 (primary / unclassified)
+// の中心線を取得して lib/walkableRoadsData.json として書き出す。
 // 実行: node scripts/fetch-gsi-roads.mjs
 //
 // 流れ:
@@ -9,7 +9,7 @@
 //  4. feature.id で重複除去 (タイル境界で切られた同一 way をまとめる)
 //  5. HOME から RADIUS_M 以内のものに絞り込む
 //  6. rdCtg を highway 値にマッピング
-//  7. RawOsmRoad 互換 ({id, highway, coords}) で書き出す
+//  7. RawWalkableRoad 互換 ({id, highway, coords}) で書き出す
 
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
@@ -198,7 +198,7 @@ async function main() {
   const merged = mergeChains(filtered);
   console.error(`[gsi] after merge: ${merged.length}`);
 
-  // RawOsmRoad 互換に整形 + primary / unclassified のみ採用
+  // RawWalkableRoad 互換に整形 + primary / unclassified のみ採用
   // (secondary = 自動車専用道路、service = 軽車道、track = 庭園路 は散歩アプリでは除外)
   const KEEP = new Set(['primary', 'unclassified']);
   const out = merged
@@ -216,10 +216,10 @@ async function main() {
   }
   console.error('[gsi] highway breakdown:', highwayCounts);
 
-  writeFileSync('lib/osmData.json', JSON.stringify(out));
-  const stats = statSync('lib/osmData.json');
+  writeFileSync('lib/walkableRoadsData.json', JSON.stringify(out));
+  const stats = statSync('lib/walkableRoadsData.json');
   console.error(
-    `[gsi] wrote lib/osmData.json (${(stats.size / 1024).toFixed(0)} KB, ${out.length} roads)`,
+    `[gsi] wrote lib/walkableRoadsData.json (${(stats.size / 1024).toFixed(0)} KB, ${out.length} roads)`,
   );
 }
 
