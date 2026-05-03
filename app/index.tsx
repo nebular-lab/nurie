@@ -26,10 +26,9 @@ const TODAY_WALKED_COLOR = '#34C759';
 const RADIUS_BANDS_M = [1000, 3000, 5000] as const;
 
 // Stadia Alidade Smooth: データオーバーレイ用に設計された neutral basemap。
-// 道路が滑らかに集約されて 1 本線寄りになる (大通りの歩道平行ラインが目立ちにくい)。
-// API キーは .env.local の EXPO_PUBLIC_STADIA_API_KEY から読む。
-const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY ?? '';
-const TILE_URL = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
+// API キーは .env の EXPO_PUBLIC_STADIA_API_KEY から読む。未設定なら起動を止めて画面に出す
+// (空文字で結合して壊れた URL を作るのは不自然な fallback)。
+const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY;
 
 export default function Index() {
   const initial = useInitialLocation();
@@ -38,8 +37,9 @@ export default function Index() {
   const recenterMap = useRecenterMap(centerMapOn);
   const insets = useSafeAreaInsets();
   const osm = useOsmRoads();
+  const tracking = useStartLocationTracking();
   const coverage = useCoverage(
-    trackPoints,
+    trackPoints.status === 'ready' ? trackPoints.points : null,
     osm.status === 'ready' ? osm.roads : null,
     BUFFER_M,
   );
@@ -54,8 +54,6 @@ export default function Index() {
     const timer = setTimeout(() => setTilesReady(true), 1200);
     return () => clearTimeout(timer);
   }, [mapReady]);
-
-  useStartLocationTracking();
 
   // 歩行済みレイヤー: 過去 → 今日 の順で重ねる。歩行履歴の更新でだけ再生成。
   const walkedOverlays = useMemo(() => {
@@ -86,6 +84,16 @@ export default function Index() {
     ]);
   }, [coverage]);
 
+  if (!STADIA_API_KEY) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>
+          EXPO_PUBLIC_STADIA_API_KEY が設定されていません
+        </Text>
+      </View>
+    );
+  }
+
   if (initial.status === 'loading') {
     return (
       <View style={styles.center}>
@@ -98,12 +106,15 @@ export default function Index() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>現在地を取得できませんでした</Text>
+        <Text style={styles.errorDetail}>{initial.message}</Text>
         <Pressable style={styles.retryButton} onPress={initial.retry}>
           <Text style={styles.retryText}>再試行</Text>
         </Pressable>
       </View>
     );
   }
+
+  const tileUrl = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
 
   return (
     <>
@@ -118,7 +129,7 @@ export default function Index() {
         }}
       >
         <UrlTile
-          urlTemplate={TILE_URL}
+          urlTemplate={tileUrl}
           maximumZ={20}
           shouldReplaceMapContent
         />
@@ -136,7 +147,12 @@ export default function Index() {
       </MapView>
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
-        <CoverageBadge osm={osm} coverage={coverage} />
+        <StatusBadge
+          osm={osm}
+          tracking={tracking}
+          trackPoints={trackPoints}
+          coverage={coverage}
+        />
       </View>
 
       <Pressable
@@ -156,13 +172,33 @@ export default function Index() {
   );
 }
 
-function CoverageBadge({
+function StatusBadge({
   osm,
+  tracking,
+  trackPoints,
   coverage,
 }: {
   osm: ReturnType<typeof useOsmRoads>;
+  tracking: ReturnType<typeof useStartLocationTracking>;
+  trackPoints: ReturnType<typeof useStoredTrackPoints>;
   coverage: ReturnType<typeof useCoverage>;
 }) {
+  if (tracking.status === 'error') {
+    return (
+      <View style={styles.badgeRow}>
+        <Text style={styles.errorBadge}>記録エラー: {tracking.message}</Text>
+      </View>
+    );
+  }
+  if (trackPoints.status === 'error') {
+    return (
+      <View style={styles.badgeRow}>
+        <Text style={styles.errorBadge}>
+          歩行履歴の読み込み失敗: {trackPoints.message}
+        </Text>
+      </View>
+    );
+  }
   if (osm.status === 'loading') {
     return (
       <View style={styles.badgeRow}>
@@ -174,14 +210,14 @@ function CoverageBadge({
   if (osm.status === 'error') {
     return (
       <View style={styles.badgeRow}>
-        <Text style={styles.errorBadge}>道路データ取得失敗</Text>
+        <Text style={styles.errorBadge}>道路データ取得失敗: {osm.message}</Text>
         <Pressable onPress={osm.retry} style={styles.smallButton}>
           <Text style={styles.smallButtonText}>再試行</Text>
         </Pressable>
       </View>
     );
   }
-  if (!coverage) {
+  if (trackPoints.status === 'loading' || !coverage) {
     return (
       <View style={styles.badgeRow}>
         <Text style={styles.badgeText}>計算中…</Text>
@@ -227,8 +263,14 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    marginBottom: 16,
+    marginBottom: 8,
     color: '#333',
+  },
+  errorDetail: {
+    fontSize: 13,
+    marginBottom: 16,
+    color: '#777',
+    textAlign: 'center',
   },
   retryButton: {
     paddingHorizontal: 20,

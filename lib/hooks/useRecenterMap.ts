@@ -1,7 +1,8 @@
 // 現在地ボタン用のハンドラ。押されたら現在地を取り直して地図をそこへ寄せる。
-// 取得失敗時は黙ってスキップする (起動時のような厳格な扱いは不要 — 単なるユーザー操作なので)。
+// 失敗したら Alert で理由を表示する (ボタン操作なのに無反応はユーザーが詰まる)。
 
 import { useCallback } from 'react';
+import { Alert } from 'react-native';
 
 import { getCurrentCoords } from '../location';
 
@@ -9,7 +10,12 @@ type CenterMapOn = (latitude: number, longitude: number) => void;
 
 export function useRecenterMap(centerMapOn: CenterMapOn): () => Promise<void> {
   return useCallback(async () => {
-    const coords = await getCurrentCoords();
-    if (coords) centerMapOn(coords.latitude, coords.longitude);
+    try {
+      const coords = await getCurrentCoords();
+      centerMapOn(coords.latitude, coords.longitude);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '不明なエラー';
+      Alert.alert('現在地を取得できませんでした', message);
+    }
   }, [centerMapOn]);
 }

@@ -10,7 +10,7 @@ import { getCurrentCoords } from '../location';
 export type InitialLocationState =
   | { status: 'loading' }
   | { status: 'ready'; coords: { latitude: number; longitude: number } }
-  | { status: 'error'; retry: () => void };
+  | { status: 'error'; message: string; retry: () => void };
 
 export function useInitialLocation(): InitialLocationState {
   const [state, setState] = useState<InitialLocationState>({ status: 'loading' });
@@ -21,14 +21,19 @@ export function useInitialLocation(): InitialLocationState {
       (async () => {
         const perm = await Location.requestForegroundPermissionsAsync();
         if (perm.status !== 'granted') {
-          setState({ status: 'error', retry: load });
+          setState({
+            status: 'error',
+            message: '位置情報の利用が許可されていません',
+            retry: load,
+          });
           return;
         }
-        const coords = await getCurrentCoords();
-        if (coords) {
+        try {
+          const coords = await getCurrentCoords();
           setState({ status: 'ready', coords });
-        } else {
-          setState({ status: 'error', retry: load });
+        } catch (e) {
+          const message = e instanceof Error ? e.message : '不明なエラー';
+          setState({ status: 'error', message, retry: load });
         }
       })();
     };
