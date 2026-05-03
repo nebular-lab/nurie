@@ -6,7 +6,7 @@
     "start": "expo start",
     "ios": "expo run:ios",
     "ios:release": "expo run:ios --configuration Release --device",
-    "lint": "expo lint"
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@turf/turf": "^7.3.5",

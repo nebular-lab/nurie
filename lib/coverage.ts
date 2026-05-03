@@ -4,10 +4,10 @@
 // 3. 今日の corridor が優先 (今日歩いたなら past 扱いしない)
 // 4. 歩いた区間長 ÷ 全道路長 = % を返す
 
-import along from '@turf/along';
-import bbox from '@turf/bbox';
-import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
-import buffer from '@turf/buffer';
+import { along } from '@turf/along';
+import { bbox } from '@turf/bbox';
+import { booleanPointInPolygon } from '@turf/boolean-point-in-polygon';
+import { buffer } from '@turf/buffer';
 import { lineString, multiLineString } from '@turf/helpers';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
 

@@ -4,7 +4,7 @@
 // HOME / AREA_RADIUS_M を変えたら再生成すること。
 
 import { lineString } from '@turf/helpers';
-import length from '@turf/length';
+import { length } from '@turf/length';
 
 import { AREA_RADIUS_M, DEAD_END_MAX_LENGTH_M, HOME } from './constants';
 import { haversineMeters } from './geo';
