@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Polyline } from 'react-native-maps';
+import MapView, { Polyline, UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MAX_BUFFER_M, MIN_BUFFER_M } from '@/lib/constants';
@@ -35,6 +35,17 @@ export default function Index() {
     osm.status === 'ready' ? osm.roads : null,
     bufferM,
   );
+
+  // Carto タイルが乗るまで Apple Maps の基底が一瞬チラつくのを白いオーバーレイで隠す。
+  // UrlTile に「読み込み完了」コールバックは無いので、onMapReady から少し遅延させる。
+  const [mapReady, setMapReady] = useState(false);
+  const [tilesReady, setTilesReady] = useState(false);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const timer = setTimeout(() => setTilesReady(true), 1200);
+    return () => clearTimeout(timer);
+  }, [mapReady]);
 
   useStartLocationTracking();
 
@@ -92,8 +103,16 @@ export default function Index() {
         style={styles.map}
         initialRegion={{ ...initial.coords, ...MAP_ZOOM_DELTA }}
         showsUserLocation
-        onMapReady={onMapReady}
+        onMapReady={() => {
+          onMapReady();
+          setMapReady(true);
+        }}
       >
+        <UrlTile
+          urlTemplate="https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png"
+          maximumZ={20}
+          shouldReplaceMapContent
+        />
         {roadOverlays}
       </MapView>
 
@@ -132,6 +151,13 @@ export default function Index() {
       >
         <View style={styles.recenterDot} />
       </Pressable>
+
+      {!tilesReady && (
+        <View style={styles.tileLoadingOverlay}>
+          <ActivityIndicator size="large" color="#888" />
+          <Text style={styles.tileLoadingText}>地図を読み込み中…</Text>
+        </View>
+      )}
     </>
   );
 }
@@ -310,5 +336,20 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 8,
     backgroundColor: '#007AFF',
+  },
+  tileLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FAFAFA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  tileLoadingText: {
+    fontSize: 14,
+    color: '#666',
   },
 });
