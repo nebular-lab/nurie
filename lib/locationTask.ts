@@ -1,11 +1,16 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import { DeviceEventEmitter } from 'react-native';
 
 import { getRecentPoints, insertPoint } from './db';
 import { haversineMeters } from './geo';
 
 const TASK_NAME = 'nurie-location-tracking';
 const MIN_DISTANCE_M = 8;
+
+// foreground 中に新しい点が DB に書かれたことを React 側へ通知する。
+// アプリが kill された状態でタスクが起きた場合は listener が居ないので無害。
+export const POINT_ADDED_EVENT = 'nurie:point-added';
 
 type LocationTaskData = {
   locations: Location.LocationObject[];
@@ -30,6 +35,7 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
 
   await ensureLastSavedLoaded();
 
+  let inserted = 0;
   for (const loc of data.locations) {
     const candidate = {
       lat: loc.coords.latitude,
@@ -45,9 +51,14 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
         recordedAt: loc.timestamp,
       });
       lastSaved = candidate;
+      inserted++;
     } catch (e) {
       console.warn('[task] insert failed', e);
     }
+  }
+
+  if (inserted > 0) {
+    DeviceEventEmitter.emit(POINT_ADDED_EVENT);
   }
 });
 
