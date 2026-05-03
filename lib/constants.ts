@@ -8,7 +8,10 @@ export const HOME = {
 };
 
 export const AREA_RADIUS_M = 1000; // 自宅から何 m を達成率対象とするか
-export const DEFAULT_BUFFER_M = 15; // 道路から何 m 以内に GPS 点があれば「歩いた」扱いとするか
+export const DEFAULT_BUFFER_M = 8; // 道路から何 m 以内に GPS 点があれば「歩いた」扱いとするか
 export const MIN_BUFFER_M = 5;
 export const MAX_BUFFER_M = 30;
 export const COVERAGE_SAMPLE_SPACING_M = 2; // 道路サンプリング間隔 (細かいほど精度↑、計算↓)
+// 片端が他の道路と繋がっていない短い道 (袋小路・私道枝など) を除外する閾値。
+// 長い道はたとえ片端が行き止まりでも本道として残す。
+export const DEAD_END_MAX_LENGTH_M = 50;

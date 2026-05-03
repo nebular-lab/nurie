@@ -7,7 +7,6 @@ import along from '@turf/along';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import buffer from '@turf/buffer';
 import { lineString, multiLineString } from '@turf/helpers';
-import length from '@turf/length';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
 
 import { COVERAGE_SAMPLE_SPACING_M } from './constants';
@@ -79,9 +78,7 @@ function classifyRoad(
   road: OsmRoad,
   corridor: Feature<Polygon | MultiPolygon>,
 ): RoadCoverage {
-  const line = lineString(road.coords);
-  const totalKm = length(line, { units: 'kilometers' });
-  const totalM = totalKm * 1000;
+  const totalM = road.totalM;
 
   if (totalM < 1) {
     return {
@@ -93,26 +90,27 @@ function classifyRoad(
     };
   }
 
+  const line = lineString(road.coords);
   const spacing = COVERAGE_SAMPLE_SPACING_M;
   const numSamples = Math.max(2, Math.ceil(totalM / spacing) + 1);
+  const interval = totalM / (numSamples - 1);
   const flags: boolean[] = [];
   const samples: [number, number][] = [];
 
   for (let i = 0; i < numSamples; i++) {
-    const distM = (i / (numSamples - 1)) * totalM;
-    const pt = along(line, distM / 1000, { units: 'kilometers' });
+    const pt = along(line, (i * interval) / 1000, { units: 'kilometers' });
     const c = pt.geometry.coordinates as [number, number];
     samples.push(c);
     flags.push(booleanPointInPolygon(pt, corridor));
   }
 
-  // 隣接するサンプル間の距離 (≒ spacing m) を「歩いた / 未踏」に振り分ける。
-  // 区切りは「両端のフラグが一致するならそのまま、ズレたら半分ずつ」のシンプル判定。
+  // 隣接するサンプル間の距離 (= interval) を「歩いた / 未踏」に振り分ける。
+  // 両端のフラグが一致するならまるごと、ズレたら半分ずつ (描画用の run も中間点で切る)。
   let walkedM = 0;
   const walked: [number, number][][] = [];
   const unwalked: [number, number][][] = [];
-  let curWalked = false;
-  let curRun: [number, number][] = [];
+  let curWalked = flags[0];
+  let curRun: [number, number][] = [samples[0]];
 
   const pushRun = () => {
     if (curRun.length >= 2) {
@@ -121,17 +119,15 @@ function classifyRoad(
     curRun = [];
   };
 
-  for (let i = 0; i < samples.length; i++) {
+  for (let i = 1; i < samples.length; i++) {
+    const prev = flags[i - 1];
     const f = flags[i];
-    if (i === 0) {
-      curWalked = f;
-      curRun = [samples[i]];
-      continue;
-    }
+    if (prev && f) walkedM += interval;
+    else if (prev !== f) walkedM += interval / 2;
+
     if (f === curWalked) {
       curRun.push(samples[i]);
     } else {
-      // 切り替え点。中間点で run を切る。
       const mid: [number, number] = [
         (samples[i - 1][0] + samples[i][0]) / 2,
         (samples[i - 1][1] + samples[i][1]) / 2,
@@ -143,10 +139,6 @@ function classifyRoad(
     }
   }
   pushRun();
-
-  for (const seg of walked) {
-    walkedM += length(lineString(seg), { units: 'kilometers' }) * 1000;
-  }
 
   return {
     road,
@@ -169,11 +161,10 @@ export function computeCoverage(
 
   if (!corridor) {
     for (const road of roads) {
-      const t = length(lineString(road.coords), { units: 'kilometers' }) * 1000;
-      totalM += t;
+      totalM += road.totalM;
       out.push({
         road,
-        totalM: t,
+        totalM: road.totalM,
         walkedM: 0,
         walkedSegments: [],
         unwalkedSegments: [road.coords],
