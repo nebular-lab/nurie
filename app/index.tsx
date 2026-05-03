@@ -21,6 +21,11 @@ import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 const WALKED_ROAD_COLOR = '#FF3B30';
 const UNWALKED_ROAD_COLOR = 'rgba(120, 120, 120, 0.35)';
 
+// Stadia Alidade Smooth: データオーバーレイ用の neutral basemap。
+// API キーは .env / .env.local の EXPO_PUBLIC_STADIA_API_KEY から読む。
+const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY ?? '';
+const TILE_URL = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
+
 export default function Index() {
   const initial = useInitialLocation();
   const { mapRef, centerMapOn, onMapReady } = useMapCamera();
@@ -34,7 +39,7 @@ export default function Index() {
     BUFFER_M,
   );
 
-  // Carto タイルが乗るまで Apple Maps の基底が一瞬チラつくのを白いオーバーレイで隠す。
+  // タイルが乗るまで Apple Maps の基底が一瞬チラつくのを白いオーバーレイで隠す。
   // UrlTile に「読み込み完了」コールバックは無いので、onMapReady から少し遅延させる。
   const [mapReady, setMapReady] = useState(false);
   const [tilesReady, setTilesReady] = useState(false);
@@ -107,7 +112,7 @@ export default function Index() {
         }}
       >
         <UrlTile
-          urlTemplate="https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png"
+          urlTemplate={TILE_URL}
           maximumZ={20}
           shouldReplaceMapContent
         />

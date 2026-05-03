@@ -1,9 +1,7 @@
-// 自宅周辺の OSM 道路をロードする。
-// キャッシュ済みなら即時 (Overpass を叩かない)、無ければネットワーク取得。
+// 自宅周辺の道路データ (バンドル同梱の静的データ) をロードする。
 
 import { useEffect, useState } from 'react';
 
-import { AREA_RADIUS_M, HOME } from '../constants';
 import { loadOsmRoads, type OsmRoad } from '../osm';
 
 export type OsmRoadsState =
@@ -19,7 +17,7 @@ export function useOsmRoads(): OsmRoadsState {
     const load = async () => {
       setState({ status: 'loading' });
       try {
-        const roads = await loadOsmRoads(HOME.lat, HOME.lng, AREA_RADIUS_M);
+        const roads = await loadOsmRoads();
         if (!cancelled) setState({ status: 'ready', roads });
       } catch (e) {
         if (cancelled) return;

@@ -1,18 +1,17 @@
-// OpenStreetMap (Overpass API) から、自宅周辺の歩ける道路を取得する。
-// HOME / AREA_RADIUS_M に対応する静的データを lib/osmData.json に同梱しているので、
-// 自宅 + 半径が一致するなら即時リターン (ネットワーク不要)。
-// 違うときだけ Overpass を叩いて SQLite にキャッシュする。
+// 自宅周辺の歩ける道路データを提供する。
+// 静的データ (lib/osmData.json) は scripts/fetch-gsi-roads.mjs が GSI ベクトルタイルから
+// 生成したもの。HOME / AREA_RADIUS_M を変えたら再生成すること。
 
 import { lineString } from '@turf/helpers';
 import length from '@turf/length';
 
 import { AREA_RADIUS_M, DEAD_END_MAX_LENGTH_M, HOME } from './constants';
-import { getOsmCache, putOsmCache } from './db';
 import { haversineMeters } from './geo';
 import staticRoads from './osmData.json';
 
 type RawOsmRoad = {
   id: number;
+  highway: string;
   // [lng, lat] 配列 (turf / GeoJSON 互換)
   coords: [number, number][];
 };
@@ -21,135 +20,31 @@ type RawOsmRoad = {
 export type Bbox = [number, number, number, number];
 
 // totalM と bbox はロード時に一度だけ計算してキャッシュする
-// (歩行率は毎秒再計算されるため、毎回の長さ・範囲計算は避けたい)。
+// (歩行率は毎秒再計算されるため、毎回の計算は避けたい)。
 export type OsmRoad = RawOsmRoad & {
   totalM: number;
   bbox: Bbox;
 };
 
-const OVERPASS_ENDPOINT = 'https://overpass-api.de/api/interpreter';
-
-// 歩ける道路のフィルタ。高速道路や鉄道などは除外。
-const HIGHWAY_FILTER =
-  '^(residential|primary|secondary|tertiary|unclassified|footway|path|pedestrian|living_street|service|track|cycleway|steps)$';
-
-type OverpassWay = {
-  type: 'way';
-  id: number;
-  geometry?: { lat: number; lon: number }[];
-};
-
-type OverpassResponse = {
-  elements: OverpassWay[];
-};
-
-function buildQuery(lat: number, lng: number, radiusM: number): string {
-  return `[out:json][timeout:25];
-way(around:${radiusM},${lat},${lng})["highway"~"${HIGHWAY_FILTER}"];
-out geom;`;
-}
-
-async function fetchOverpass(
-  lat: number,
-  lng: number,
-  radiusM: number,
-): Promise<RawOsmRoad[]> {
-  const body = `data=${encodeURIComponent(buildQuery(lat, lng, radiusM))}`;
-  const res = await fetch(OVERPASS_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`Overpass returned ${res.status}`);
+export async function loadOsmRoads(): Promise<OsmRoad[]> {
+  const raw = staticRoads as RawOsmRoad[];
+  const filtered = filterShortDeadEnds(raw);
+  const counts: Record<string, number> = {};
+  for (const r of filtered) {
+    counts[r.highway] = (counts[r.highway] ?? 0) + 1;
   }
-  const json = (await res.json()) as OverpassResponse;
-  const roads: RawOsmRoad[] = [];
-  for (const el of json.elements) {
-    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
-    roads.push({
-      id: el.id,
-      coords: el.geometry.map((g) => [g.lon, g.lat] as [number, number]),
-    });
-  }
-  return roads;
-}
-
-// 同梱した静的データが「現在の HOME / AREA_RADIUS_M」と一致するか判定。
-// 一致するならネットワーク不要。
-function matchesStatic(homeLat: number, homeLng: number, radiusM: number): boolean {
-  return (
-    Math.abs(homeLat - HOME.lat) < 1e-6 &&
-    Math.abs(homeLng - HOME.lng) < 1e-6 &&
-    radiusM === AREA_RADIUS_M
+  console.log(
+    `[roads] loaded ${filtered.length} after dead-end filter, breakdown:`,
+    counts,
   );
-}
-
-// 自宅と半径が一致するキャッシュがあれば返す。なければ Overpass を叩いて保存。
-// 戻す前に短い行き止まり道は除外する (袋小路や私道の枝を除く)。
-export async function loadOsmRoads(
-  homeLat: number,
-  homeLng: number,
-  radiusM: number,
-  options: { forceRefresh?: boolean } = {},
-): Promise<OsmRoad[]> {
-  const raw = await loadRawOsmRoads(homeLat, homeLng, radiusM, options);
-  return filterShortDeadEnds(raw, homeLat, homeLng, radiusM);
-}
-
-async function loadRawOsmRoads(
-  homeLat: number,
-  homeLng: number,
-  radiusM: number,
-  options: { forceRefresh?: boolean },
-): Promise<RawOsmRoad[]> {
-  if (!options.forceRefresh) {
-    const cached = await getOsmCache();
-    if (
-      cached &&
-      Math.abs(cached.homeLat - homeLat) < 1e-6 &&
-      Math.abs(cached.homeLng - homeLng) < 1e-6 &&
-      cached.radiusM === radiusM
-    ) {
-      try {
-        return JSON.parse(cached.payload) as RawOsmRoad[];
-      } catch (e) {
-        console.warn('[osm] cache parse failed, refetching', e);
-      }
-    }
-    if (matchesStatic(homeLat, homeLng, radiusM)) {
-      const roads = staticRoads as RawOsmRoad[];
-      putOsmCache({
-        homeLat,
-        homeLng,
-        radiusM,
-        fetchedAt: Date.now(),
-        payload: JSON.stringify(roads),
-      }).catch((e) => console.warn('[osm] cache write failed', e));
-      return roads;
-    }
-  }
-  const roads = await fetchOverpass(homeLat, homeLng, radiusM);
-  await putOsmCache({
-    homeLat,
-    homeLng,
-    radiusM,
-    fetchedAt: Date.now(),
-    payload: JSON.stringify(roads),
-  });
-  return roads;
+  return filtered;
 }
 
 // 全道路を頂点グラフとみなして「短くて、片端が他の道に繋がっていない道」を落とす。
 // 円の境界で切られた端点は他の道に繋がっていなくても行き止まり扱いしない
 // (本当は外で繋がっているがデータが切られているだけ)。
-// 通過する道には totalM を付けて返す (歩行率計算側で再利用するため)。
-function filterShortDeadEnds(
-  roads: RawOsmRoad[],
-  homeLat: number,
-  homeLng: number,
-  radiusM: number,
-): OsmRoad[] {
+// 通過する道には totalM と bbox を付けて返す (歩行率計算側で再利用するため)。
+function filterShortDeadEnds(roads: RawOsmRoad[]): OsmRoad[] {
   const keyOf = (lng: number, lat: number) =>
     `${lng.toFixed(7)},${lat.toFixed(7)}`;
 
@@ -161,9 +56,9 @@ function filterShortDeadEnds(
     }
   }
 
-  const home = { lat: homeLat, lng: homeLng };
+  const home = { lat: HOME.lat, lng: HOME.lng };
   const isInside = (lng: number, lat: number) =>
-    haversineMeters(home, { lat, lng }) <= radiusM;
+    haversineMeters(home, { lat, lng }) <= AREA_RADIUS_M;
 
   const isDeadEndCoord = (c: [number, number]) => {
     if (!isInside(c[0], c[1])) return false;
@@ -193,7 +88,11 @@ function filterShortDeadEnds(
       if (lat > maxLat) maxLat = lat;
     }
 
-    out.push({ ...road, totalM, bbox: [minLng, minLat, maxLng, maxLat] });
+    out.push({
+      ...road,
+      totalM,
+      bbox: [minLng, minLat, maxLng, maxLat],
+    });
   }
   return out;
 }
