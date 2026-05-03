@@ -8,6 +8,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@turf/turf": "^7.3.5",
     "expo": "55.0.18",
     "expo-constants": "55.0.15",
     "expo-dev-client": "55.0.28",
