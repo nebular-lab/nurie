@@ -37,10 +37,6 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
       fetched_at INTEGER NOT NULL,
       payload TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
   `);
   return db;
 }
@@ -128,23 +124,5 @@ export async function putOsmCache(entry: OsmCacheRow): Promise<void> {
     entry.radiusM,
     entry.fetchedAt,
     entry.payload,
-  );
-}
-
-export async function getSetting(key: string): Promise<string | null> {
-  const db = await getDb();
-  const row = await db.getFirstAsync<{ value: string }>(
-    'SELECT value FROM settings WHERE key = ?',
-    key,
-  );
-  return row?.value ?? null;
-}
-
-export async function putSetting(key: string, value: string): Promise<void> {
-  const db = await getDb();
-  await db.runAsync(
-    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-    key,
-    value,
   );
 }

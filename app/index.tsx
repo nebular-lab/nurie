@@ -9,8 +9,7 @@ import {
 import MapView, { Polyline, UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { MAX_BUFFER_M, MIN_BUFFER_M } from '@/lib/constants';
-import { useBufferSetting } from '@/lib/hooks/useBufferSetting';
+import { BUFFER_M } from '@/lib/constants';
 import { useCoverage } from '@/lib/hooks/useCoverage';
 import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
@@ -29,11 +28,10 @@ export default function Index() {
   const recenterMap = useRecenterMap(centerMapOn);
   const insets = useSafeAreaInsets();
   const osm = useOsmRoads();
-  const { bufferM, setBufferM } = useBufferSetting();
   const coverage = useCoverage(
     trackPoints,
     osm.status === 'ready' ? osm.roads : null,
-    bufferM,
+    BUFFER_M,
   );
 
   // Carto タイルが乗るまで Apple Maps の基底が一瞬チラつくのを白いオーバーレイで隠す。
@@ -117,32 +115,7 @@ export default function Index() {
       </MapView>
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
-        <CoverageBadge osm={osm} coverage={coverage} bufferM={bufferM} />
-        <View style={styles.bufferRow}>
-          <Text style={styles.bufferLabel}>誤差判定: ±{bufferM}m</Text>
-          <View style={styles.bufferButtons}>
-            <Pressable
-              style={[
-                styles.stepButton,
-                bufferM <= MIN_BUFFER_M && styles.stepButtonDisabled,
-              ]}
-              disabled={bufferM <= MIN_BUFFER_M}
-              onPress={() => setBufferM(bufferM - 1)}
-            >
-              <Text style={styles.stepButtonText}>−</Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.stepButton,
-                bufferM >= MAX_BUFFER_M && styles.stepButtonDisabled,
-              ]}
-              disabled={bufferM >= MAX_BUFFER_M}
-              onPress={() => setBufferM(bufferM + 1)}
-            >
-              <Text style={styles.stepButtonText}>+</Text>
-            </Pressable>
-          </View>
-        </View>
+        <CoverageBadge osm={osm} coverage={coverage} />
       </View>
 
       <Pressable
@@ -165,11 +138,9 @@ export default function Index() {
 function CoverageBadge({
   osm,
   coverage,
-  bufferM,
 }: {
   osm: ReturnType<typeof useOsmRoads>;
   coverage: ReturnType<typeof useCoverage>;
-  bufferM: number;
 }) {
   if (osm.status === 'loading') {
     return (
@@ -203,7 +174,7 @@ function CoverageBadge({
     <View>
       <Text style={styles.percentText}>{pct}%</Text>
       <Text style={styles.subText}>
-        {walkedKm} / {totalKm} km · 誤差 ±{bufferM}m
+        {walkedKm} / {totalKm} km · 誤差 ±{BUFFER_M}m
       </Text>
     </View>
   );
@@ -284,37 +255,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
-  },
-  bufferRow: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bufferLabel: {
-    fontSize: 12,
-    color: '#444',
-  },
-  bufferButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  stepButton: {
-    width: 32,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepButtonDisabled: {
-    backgroundColor: '#B0B0B0',
-  },
-  stepButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 20,
   },
   recenterButton: {
     position: 'absolute',
