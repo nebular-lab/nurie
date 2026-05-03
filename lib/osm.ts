@@ -17,9 +17,14 @@ type RawOsmRoad = {
   coords: [number, number][];
 };
 
-// totalM はロード時に一度だけ計算してキャッシュする (歩行率は毎秒再計算されるため)。
+// [minLng, minLat, maxLng, maxLat]
+export type Bbox = [number, number, number, number];
+
+// totalM と bbox はロード時に一度だけ計算してキャッシュする
+// (歩行率は毎秒再計算されるため、毎回の長さ・範囲計算は避けたい)。
 export type OsmRoad = RawOsmRoad & {
   totalM: number;
+  bbox: Bbox;
 };
 
 const OVERPASS_ENDPOINT = 'https://overpass-api.de/api/interpreter';
@@ -176,7 +181,19 @@ function filterShortDeadEnds(
       const last = road.coords[road.coords.length - 1];
       if (isDeadEndCoord(first) || isDeadEndCoord(last)) continue;
     }
-    out.push({ ...road, totalM });
+
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const [lng, lat] of road.coords) {
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+
+    out.push({ ...road, totalM, bbox: [minLng, minLat, maxLng, maxLat] });
   }
   return out;
 }

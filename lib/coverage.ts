@@ -4,6 +4,7 @@
 // 3. 歩いた区間長 ÷ 全道路長 = % を返す
 
 import along from '@turf/along';
+import bbox from '@turf/bbox';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import buffer from '@turf/buffer';
 import { lineString, multiLineString } from '@turf/helpers';
@@ -11,7 +12,7 @@ import type { Feature, MultiPolygon, Polygon } from 'geojson';
 
 import { COVERAGE_SAMPLE_SPACING_M } from './constants';
 import type { Point } from './db';
-import type { OsmRoad } from './osm';
+import type { Bbox, OsmRoad } from './osm';
 
 export type RoadCoverage = {
   road: OsmRoad;
@@ -149,6 +150,20 @@ function classifyRoad(
   };
 }
 
+function bboxesIntersect(a: Bbox, b: Bbox): boolean {
+  return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
+}
+
+function unwalkedRoadCoverage(road: OsmRoad): RoadCoverage {
+  return {
+    road,
+    totalM: road.totalM,
+    walkedM: 0,
+    walkedSegments: [],
+    unwalkedSegments: [road.coords],
+  };
+}
+
 export function computeCoverage(
   points: Point[],
   roads: OsmRoad[],
@@ -162,19 +177,19 @@ export function computeCoverage(
   if (!corridor) {
     for (const road of roads) {
       totalM += road.totalM;
-      out.push({
-        road,
-        totalM: road.totalM,
-        walkedM: 0,
-        walkedSegments: [],
-        unwalkedSegments: [road.coords],
-      });
+      out.push(unwalkedRoadCoverage(road));
     }
     return { totalM, walkedM: 0, ratio: 0, roads: out };
   }
 
+  // コリドー bbox と交差しない道路はサンプリングを丸ごとスキップする。
+  // 歩行範囲は地域全体に対して局所的なので、これだけで大半の道路が落ちる。
+  const corridorBbox = bbox(corridor) as Bbox;
+
   for (const road of roads) {
-    const cov = classifyRoad(road, corridor);
+    const cov = bboxesIntersect(road.bbox, corridorBbox)
+      ? classifyRoad(road, corridor)
+      : unwalkedRoadCoverage(road);
     totalM += cov.totalM;
     walkedM += cov.walkedM;
     out.push(cov);
