@@ -6,10 +6,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Circle, Polyline, UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BUFFER_M } from '@/lib/constants';
+import { BUFFER_M, HOME } from '@/lib/constants';
 import { useCoverage } from '@/lib/hooks/useCoverage';
 import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
@@ -18,11 +18,16 @@ import { useRecenterMap } from '@/lib/hooks/useRecenterMap';
 import { useStartLocationTracking } from '@/lib/hooks/useStartLocationTracking';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 
-const WALKED_ROAD_COLOR = '#FF3B30';
-const UNWALKED_ROAD_COLOR = 'rgba(120, 120, 120, 0.35)';
+// 道路の色: 過去歩行=薄い赤、今日歩行=緑 (未踏は描かない)
+const PAST_WALKED_COLOR = '#FF9999';
+const TODAY_WALKED_COLOR = '#34C759';
 
-// Stadia Alidade Smooth: データオーバーレイ用の neutral basemap。
-// API キーは .env / .env.local の EXPO_PUBLIC_STADIA_API_KEY から読む。
+// 自宅からの半径バンド (歩行率の集計と地図上の同心円描画に使う)
+const RADIUS_BANDS_M = [1000, 3000, 5000] as const;
+
+// Stadia Alidade Smooth: データオーバーレイ用に設計された neutral basemap。
+// 道路が滑らかに集約されて 1 本線寄りになる (大通りの歩道平行ラインが目立ちにくい)。
+// API キーは .env.local の EXPO_PUBLIC_STADIA_API_KEY から読む。
 const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY ?? '';
 const TILE_URL = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
 
@@ -52,29 +57,30 @@ export default function Index() {
 
   useStartLocationTracking();
 
-  const roadOverlays = useMemo(() => {
+  // 歩行済みレイヤー: 過去 → 今日 の順で重ねる。歩行履歴の更新でだけ再生成。
+  const walkedOverlays = useMemo(() => {
     if (!coverage) return null;
     return coverage.roads.flatMap((rc) => [
-      ...rc.unwalkedSegments.map((seg, j) => (
+      ...rc.walkedPastSegments.map((seg, j) => (
         <Polyline
-          key={`u-${rc.road.id}-${j}`}
+          key={`p-${rc.road.id}-${j}`}
           coordinates={seg.map(([lng, lat]) => ({
             latitude: lat,
             longitude: lng,
           }))}
-          strokeColor={UNWALKED_ROAD_COLOR}
-          strokeWidth={3}
+          strokeColor={PAST_WALKED_COLOR}
+          strokeWidth={5}
         />
       )),
-      ...rc.walkedSegments.map((seg, j) => (
+      ...rc.walkedTodaySegments.map((seg, j) => (
         <Polyline
-          key={`w-${rc.road.id}-${j}`}
+          key={`t-${rc.road.id}-${j}`}
           coordinates={seg.map(([lng, lat]) => ({
             latitude: lat,
             longitude: lng,
           }))}
-          strokeColor={WALKED_ROAD_COLOR}
-          strokeWidth={6}
+          strokeColor={TODAY_WALKED_COLOR}
+          strokeWidth={5}
         />
       )),
     ]);
@@ -116,7 +122,17 @@ export default function Index() {
           maximumZ={20}
           shouldReplaceMapContent
         />
-        {roadOverlays}
+        {RADIUS_BANDS_M.map((radius) => (
+          <Circle
+            key={`band-${radius}`}
+            center={{ latitude: HOME.lat, longitude: HOME.lng }}
+            radius={radius}
+            strokeColor="rgba(0, 0, 0, 0.35)"
+            strokeWidth={1}
+            fillColor="transparent"
+          />
+        ))}
+        {walkedOverlays}
       </MapView>
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
@@ -172,15 +188,28 @@ function CoverageBadge({
       </View>
     );
   }
-  const pct = (coverage.ratio * 100).toFixed(1);
-  const walkedKm = (coverage.walkedM / 1000).toFixed(2);
-  const totalKm = (coverage.totalM / 1000).toFixed(2);
+  // 半径バンドごとに「最短距離が R 以内の道路」だけを集計する。
+  // バンドはネスト関係 (1km ⊂ 3km ⊂ 5km) なので、1km の道は 3km / 5km にも含まれる。
+  const totals = RADIUS_BANDS_M.map(() => ({ total: 0, walked: 0 }));
+  for (const rc of coverage.roads) {
+    const d = rc.road.minDistFromHome;
+    const walked = rc.walkedTodayM + rc.walkedPastM;
+    for (let i = 0; i < RADIUS_BANDS_M.length; i++) {
+      if (d <= RADIUS_BANDS_M[i]) {
+        totals[i].total += rc.totalM;
+        totals[i].walked += walked;
+      }
+    }
+  }
+  const pct = (t: { total: number; walked: number }) =>
+    t.total > 0 ? ((t.walked / t.total) * 100).toFixed(1) : '0.0';
   return (
-    <View>
-      <Text style={styles.percentText}>{pct}%</Text>
-      <Text style={styles.subText}>
-        {walkedKm} / {totalKm} km · 誤差 ±{BUFFER_M}m
-      </Text>
+    <View style={styles.bandRow}>
+      {RADIUS_BANDS_M.map((r, i) => (
+        <Text key={r} style={styles.bandItem}>
+          {r / 1000}km: {pct(totals[i])}%
+        </Text>
+      ))}
     </View>
   );
 }
@@ -235,15 +264,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  percentText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
+  bandRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  subText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+  bandItem: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
   errorBadge: {
     fontSize: 14,

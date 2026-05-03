@@ -1,7 +1,8 @@
 // 厳密な歩行率計算。
-// 1. 歩いた点列を 1 本の LineString として buffer(corridor) を作る
-// 2. 各道路を細かくサンプリングし、サンプル点が corridor に入っていれば「その区間を歩いた」と判定
-// 3. 歩いた区間長 ÷ 全道路長 = % を返す
+// 1. 歩いた点列を 1 本の LineString として buffer(corridor) を作る (今日 / 過去で 2 つ)
+// 2. 各道路を細かくサンプリングし、サンプル点が corridor に入っていれば「歩いた」と判定
+// 3. 今日の corridor が優先 (今日歩いたなら past 扱いしない)
+// 4. 歩いた区間長 ÷ 全道路長 = % を返す
 
 import along from '@turf/along';
 import bbox from '@turf/bbox';
@@ -14,21 +15,33 @@ import { COVERAGE_SAMPLE_SPACING_M } from './constants';
 import type { Point } from './db';
 import type { Bbox, OsmRoad } from './osm';
 
+// 0 = 未踏, 1 = 過去のいずれかの日に歩いた, 2 = 今日歩いた
+type Status = 0 | 1 | 2;
+
 export type RoadCoverage = {
   road: OsmRoad;
   totalM: number;
-  walkedM: number;
-  // 歩いた区間と未踏区間 (描画用)
-  walkedSegments: [number, number][][];
+  walkedTodayM: number;
+  walkedPastM: number;
+  // 描画用 (status ごとに線を切り出す)
+  walkedTodaySegments: [number, number][][];
+  walkedPastSegments: [number, number][][];
   unwalkedSegments: [number, number][][];
 };
 
 export type CoverageResult = {
   totalM: number;
-  walkedM: number;
+  walkedM: number; // 今日 + 過去
+  walkedTodayM: number;
+  walkedPastM: number;
   ratio: number; // 0..1
   roads: RoadCoverage[];
 };
+
+function dateKey(timestampMs: number): string {
+  const d = new Date(timestampMs);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function buildTrailCorridor(
   points: Point[],
@@ -77,56 +90,63 @@ function buildTrailCorridor(
 
 function classifyRoad(
   road: OsmRoad,
-  corridor: Feature<Polygon | MultiPolygon>,
+  todayCorridor: Feature<Polygon | MultiPolygon> | null,
+  pastCorridor: Feature<Polygon | MultiPolygon> | null,
 ): RoadCoverage {
   const totalM = road.totalM;
-
-  if (totalM < 1) {
-    return {
-      road,
-      totalM,
-      walkedM: 0,
-      walkedSegments: [],
-      unwalkedSegments: [road.coords],
-    };
-  }
+  if (totalM < 1) return unwalkedRoadCoverage(road);
 
   const line = lineString(road.coords);
   const spacing = COVERAGE_SAMPLE_SPACING_M;
   const numSamples = Math.max(2, Math.ceil(totalM / spacing) + 1);
   const interval = totalM / (numSamples - 1);
-  const flags: boolean[] = [];
+  const statuses: Status[] = [];
   const samples: [number, number][] = [];
 
   for (let i = 0; i < numSamples; i++) {
     const pt = along(line, (i * interval) / 1000, { units: 'kilometers' });
     const c = pt.geometry.coordinates as [number, number];
     samples.push(c);
-    flags.push(booleanPointInPolygon(pt, corridor));
+    const inToday = todayCorridor
+      ? booleanPointInPolygon(pt, todayCorridor)
+      : false;
+    const inPast =
+      !inToday && pastCorridor ? booleanPointInPolygon(pt, pastCorridor) : false;
+    statuses.push(inToday ? 2 : inPast ? 1 : 0);
   }
 
-  // 隣接するサンプル間の距離 (= interval) を「歩いた / 未踏」に振り分ける。
-  // 両端のフラグが一致するならまるごと、ズレたら半分ずつ (描画用の run も中間点で切る)。
-  let walkedM = 0;
-  const walked: [number, number][][] = [];
+  let walkedTodayM = 0;
+  let walkedPastM = 0;
+  const today: [number, number][][] = [];
+  const past: [number, number][][] = [];
   const unwalked: [number, number][][] = [];
-  let curWalked = flags[0];
+  let curStatus = statuses[0];
   let curRun: [number, number][] = [samples[0]];
 
   const pushRun = () => {
     if (curRun.length >= 2) {
-      (curWalked ? walked : unwalked).push(curRun);
+      (curStatus === 2 ? today : curStatus === 1 ? past : unwalked).push(curRun);
     }
     curRun = [];
   };
 
   for (let i = 1; i < samples.length; i++) {
-    const prev = flags[i - 1];
-    const f = flags[i];
-    if (prev && f) walkedM += interval;
-    else if (prev !== f) walkedM += interval / 2;
+    const prev = statuses[i - 1];
+    const cur = statuses[i];
 
-    if (f === curWalked) {
+    // 区間 (i-1 → i) の距離 interval を、両端のステータスから歩行距離に振り分ける。
+    // 同じステータスならまるごと、ズレたら半分ずつ。
+    if (prev === cur) {
+      if (prev === 2) walkedTodayM += interval;
+      else if (prev === 1) walkedPastM += interval;
+    } else {
+      if (prev === 2) walkedTodayM += interval / 2;
+      else if (prev === 1) walkedPastM += interval / 2;
+      if (cur === 2) walkedTodayM += interval / 2;
+      else if (cur === 1) walkedPastM += interval / 2;
+    }
+
+    if (cur === curStatus) {
       curRun.push(samples[i]);
     } else {
       const mid: [number, number] = [
@@ -135,7 +155,7 @@ function classifyRoad(
       ];
       curRun.push(mid);
       pushRun();
-      curWalked = f;
+      curStatus = cur;
       curRun = [mid, samples[i]];
     }
   }
@@ -144,8 +164,10 @@ function classifyRoad(
   return {
     road,
     totalM,
-    walkedM,
-    walkedSegments: walked,
+    walkedTodayM,
+    walkedPastM,
+    walkedTodaySegments: today,
+    walkedPastSegments: past,
     unwalkedSegments: unwalked,
   };
 }
@@ -158,10 +180,23 @@ function unwalkedRoadCoverage(road: OsmRoad): RoadCoverage {
   return {
     road,
     totalM: road.totalM,
-    walkedM: 0,
-    walkedSegments: [],
+    walkedTodayM: 0,
+    walkedPastM: 0,
+    walkedTodaySegments: [],
+    walkedPastSegments: [],
     unwalkedSegments: [road.coords],
   };
+}
+
+function unionBboxes(a: Bbox | null, b: Bbox | null): Bbox | null {
+  if (!a) return b;
+  if (!b) return a;
+  return [
+    Math.min(a[0], b[0]),
+    Math.min(a[1], b[1]),
+    Math.max(a[2], b[2]),
+    Math.max(a[3], b[3]),
+  ];
 }
 
 export function computeCoverage(
@@ -169,35 +204,56 @@ export function computeCoverage(
   roads: OsmRoad[],
   bufferM: number,
 ): CoverageResult {
-  const corridor = buildTrailCorridor(points, bufferM);
+  const today = dateKey(Date.now());
+  const todayPoints = points.filter((p) => dateKey(p.recordedAt) === today);
+  const pastPoints = points.filter((p) => dateKey(p.recordedAt) !== today);
+
+  const todayCorridor = buildTrailCorridor(todayPoints, bufferM);
+  const pastCorridor = buildTrailCorridor(pastPoints, bufferM);
+
   let totalM = 0;
-  let walkedM = 0;
+  let walkedTodayM = 0;
+  let walkedPastM = 0;
   const out: RoadCoverage[] = [];
 
-  if (!corridor) {
+  if (!todayCorridor && !pastCorridor) {
     for (const road of roads) {
       totalM += road.totalM;
       out.push(unwalkedRoadCoverage(road));
     }
-    return { totalM, walkedM: 0, ratio: 0, roads: out };
+    return {
+      totalM,
+      walkedM: 0,
+      walkedTodayM: 0,
+      walkedPastM: 0,
+      ratio: 0,
+      roads: out,
+    };
   }
 
-  // コリドー bbox と交差しない道路はサンプリングを丸ごとスキップする。
-  // 歩行範囲は地域全体に対して局所的なので、これだけで大半の道路が落ちる。
-  const corridorBbox = bbox(corridor) as Bbox;
+  // 2 つのコリドーの bbox を合わせて、それと交わらない道路はサンプリングを丸ごと省略する。
+  const combinedBbox = unionBboxes(
+    todayCorridor ? (bbox(todayCorridor) as Bbox) : null,
+    pastCorridor ? (bbox(pastCorridor) as Bbox) : null,
+  );
 
   for (const road of roads) {
-    const cov = bboxesIntersect(road.bbox, corridorBbox)
-      ? classifyRoad(road, corridor)
-      : unwalkedRoadCoverage(road);
+    const cov =
+      combinedBbox && bboxesIntersect(road.bbox, combinedBbox)
+        ? classifyRoad(road, todayCorridor, pastCorridor)
+        : unwalkedRoadCoverage(road);
     totalM += cov.totalM;
-    walkedM += cov.walkedM;
+    walkedTodayM += cov.walkedTodayM;
+    walkedPastM += cov.walkedPastM;
     out.push(cov);
   }
 
+  const walkedM = walkedTodayM + walkedPastM;
   return {
     totalM,
     walkedM,
+    walkedTodayM,
+    walkedPastM,
     ratio: totalM > 0 ? walkedM / totalM : 0,
     roads: out,
   };

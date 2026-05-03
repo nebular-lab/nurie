@@ -19,11 +19,13 @@ type RawOsmRoad = {
 // [minLng, minLat, maxLng, maxLat]
 export type Bbox = [number, number, number, number];
 
-// totalM と bbox はロード時に一度だけ計算してキャッシュする
+// totalM, bbox, minDistFromHome はロード時に一度だけ計算してキャッシュする
 // (歩行率は毎秒再計算されるため、毎回の計算は避けたい)。
 export type OsmRoad = RawOsmRoad & {
   totalM: number;
   bbox: Bbox;
+  // 自宅からの最短距離 (m)。1km / 3km / 5km の半径別歩行率の振り分けに使う。
+  minDistFromHome: number;
 };
 
 export async function loadOsmRoads(): Promise<OsmRoad[]> {
@@ -43,7 +45,7 @@ export async function loadOsmRoads(): Promise<OsmRoad[]> {
 // 全道路を頂点グラフとみなして「短くて、片端が他の道に繋がっていない道」を落とす。
 // 円の境界で切られた端点は他の道に繋がっていなくても行き止まり扱いしない
 // (本当は外で繋がっているがデータが切られているだけ)。
-// 通過する道には totalM と bbox を付けて返す (歩行率計算側で再利用するため)。
+// 通過する道には totalM, bbox, minDistFromHome を付けて返す (歩行率計算側で再利用するため)。
 function filterShortDeadEnds(roads: RawOsmRoad[]): OsmRoad[] {
   const keyOf = (lng: number, lat: number) =>
     `${lng.toFixed(7)},${lat.toFixed(7)}`;
@@ -81,17 +83,21 @@ function filterShortDeadEnds(roads: RawOsmRoad[]): OsmRoad[] {
     let maxLng = -Infinity;
     let minLat = Infinity;
     let maxLat = -Infinity;
+    let minDistFromHome = Infinity;
     for (const [lng, lat] of road.coords) {
       if (lng < minLng) minLng = lng;
       if (lng > maxLng) maxLng = lng;
       if (lat < minLat) minLat = lat;
       if (lat > maxLat) maxLat = lat;
+      const d = haversineMeters(home, { lat, lng });
+      if (d < minDistFromHome) minDistFromHome = d;
     }
 
     out.push({
       ...road,
       totalM,
       bbox: [minLng, minLat, maxLng, maxLat],
+      minDistFromHome,
     });
   }
   return out;
