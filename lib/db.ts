@@ -65,15 +65,6 @@ export async function insertPoint(point: {
   );
 }
 
-export async function getRecentPoints(limit: number): Promise<Point[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<PointRow>(
-    'SELECT id, lat, lng, recorded_at FROM points ORDER BY recorded_at DESC LIMIT ?',
-    limit,
-  );
-  return rows.map(rowToPoint);
-}
-
 export async function getAllPoints(): Promise<Point[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<PointRow>(
