@@ -10,6 +10,7 @@ import MapView, { UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RadiusBandsOverlay } from '@/lib/components/RadiusBandsOverlay';
+import { RawPointsOverlay } from '@/lib/components/RawPointsOverlay';
 import { RecenterButton } from '@/lib/components/RecenterButton';
 import { StatusBadge } from '@/lib/components/StatusBadge';
 import { TileLoadingOverlay } from '@/lib/components/TileLoadingOverlay';
@@ -81,6 +82,9 @@ export default function Index() {
         <UrlTile urlTemplate={tileUrl} maximumZ={20} shouldReplaceMapContent />
         <RadiusBandsOverlay />
         <WalkedRoadsOverlay coverage={coverage} />
+        {trackPoints.status === 'ready' && (
+          <RawPointsOverlay points={trackPoints.points} />
+        )}
       </MapView>
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
