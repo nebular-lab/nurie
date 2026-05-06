@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { DeviceEventEmitter } from 'react-native';
 
+import { AREA_RADIUS_M, HOME } from './constants';
 import { getRecentPoints, insertPoint } from './db';
 import { haversineMeters } from './geo';
 
@@ -41,6 +42,9 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
       lat: loc.coords.latitude,
       lng: loc.coords.longitude,
     };
+    if (haversineMeters(HOME, candidate) > AREA_RADIUS_M) {
+      continue;
+    }
     if (lastSaved && haversineMeters(lastSaved, candidate) < MIN_DISTANCE_M) {
       continue;
     }
