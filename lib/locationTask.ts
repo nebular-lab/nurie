@@ -70,7 +70,7 @@ export async function startTracking() {
   const started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);
   if (started) return;
   await Location.startLocationUpdatesAsync(TASK_NAME, {
-    accuracy: Location.Accuracy.Balanced,
+    accuracy: Location.Accuracy.BestForNavigation,
     distanceInterval: 10,
     showsBackgroundLocationIndicator: false,
     activityType: Location.ActivityType.Fitness,
