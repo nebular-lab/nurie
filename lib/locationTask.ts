@@ -57,6 +57,6 @@ export async function startTracking() {
     distanceInterval: 10,
     showsBackgroundLocationIndicator: false,
     activityType: Location.ActivityType.Fitness,
-    pausesUpdatesAutomatically: true,
+    pausesUpdatesAutomatically: false,
   });
 }
