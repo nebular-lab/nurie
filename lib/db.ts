@@ -29,8 +29,9 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
       recorded_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_points_recorded_at ON points (recorded_at);
-    -- 古いビルドが残した不要テーブルを掃除する (現在は静的データを直接使うのでキャッシュは不要)。
+    -- 古いビルドが残した不要テーブルを掃除する。
     DROP TABLE IF EXISTS osm_cache;
+    DROP TABLE IF EXISTS task_events;
   `);
   return db;
 }
