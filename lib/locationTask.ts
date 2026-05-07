@@ -57,11 +57,18 @@ export async function startTracking() {
   if (started) {
     await Location.stopLocationUpdatesAsync(TASK_NAME);
   }
+  // iOS 16.4 以降、startUpdatingLocation + startMonitoringSignificantLocationChanges
+  // の併用 (expo-location は内部で両方呼ぶ) + distanceFilter 設定 +
+  // showsBackgroundLocationIndicator: false の 3 条件が揃うと、画面ロック数秒で
+  // standard updates が OS によりサスペンドされる。3 条件のうちどれかを崩せば
+  // 回避できるので、青バー表示 (= showsBackgroundLocationIndicator: true) で
+  // 1 条件を外す。これにより distanceInterval を残しても suspend されない。
+  // 参考: https://developer.apple.com/forums/thread/726945
   await Location.startLocationUpdatesAsync(TASK_NAME, {
-    accuracy: Location.Accuracy.BestForNavigation,
-    distanceInterval: 10,
-    showsBackgroundLocationIndicator: false,
+    accuracy: Location.Accuracy.Highest,
     activityType: Location.ActivityType.Fitness,
     pausesUpdatesAutomatically: false,
+    showsBackgroundLocationIndicator: true,
+    distanceInterval: 10,
   });
 }
