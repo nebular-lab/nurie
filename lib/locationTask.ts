@@ -50,8 +50,13 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
 });
 
 export async function startTracking() {
+  // 既に登録済みの場合でも、ビルドをまたいでオプションを確実に反映させるために
+  // 一度停止してから再登録する。startLocationUpdatesAsync の登録は再インストールを
+  // またいで残るため、早期 return すると古いオプションのまま動き続ける。
   const started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);
-  if (started) return;
+  if (started) {
+    await Location.stopLocationUpdatesAsync(TASK_NAME);
+  }
   await Location.startLocationUpdatesAsync(TASK_NAME, {
     accuracy: Location.Accuracy.BestForNavigation,
     distanceInterval: 10,
