@@ -99,7 +99,7 @@ export default function Index() {
 
       <RecenterButton bottom={insets.bottom + 24} onPress={recenterMap} />
       <TrackingToggleButton
-        bottom={insets.bottom + 24 + 48 + 12}
+        bottom={insets.bottom + 32}
         isEnabled={tracking.isEnabled}
         disabled={tracking.status === 'starting'}
         onPress={() => {

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export function TrackingToggleButton({
   bottom,
@@ -12,35 +12,41 @@ export function TrackingToggleButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      style={[
-        styles.button,
-        { bottom },
-        isEnabled ? styles.buttonStop : styles.buttonStart,
-        disabled && styles.buttonDisabled,
-      ]}
-      onPress={onPress}
-      disabled={disabled}
-    >
-      <Text style={styles.label}>{isEnabled ? '停止' : '記録開始'}</Text>
-    </Pressable>
+    <View style={[styles.wrapper, { bottom }]} pointerEvents="box-none">
+      <Pressable
+        style={[
+          styles.button,
+          isEnabled ? styles.buttonStop : styles.buttonStart,
+          disabled && styles.buttonDisabled,
+        ]}
+        onPress={onPress}
+        disabled={disabled}
+      >
+        <Text style={styles.label}>{isEnabled ? '停止' : '記録開始'}</Text>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
+  wrapper: {
     position: 'absolute',
-    right: 24,
-    paddingHorizontal: 18,
-    height: 48,
-    borderRadius: 24,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  button: {
+    paddingHorizontal: 36,
+    height: 64,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 5,
+    minWidth: 180,
   },
   buttonStart: {
     backgroundColor: '#34c759',
@@ -53,7 +59,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 20,
     fontWeight: '700',
   },
 });
