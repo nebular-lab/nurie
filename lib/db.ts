@@ -29,6 +29,10 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
       recorded_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_points_recorded_at ON points (recorded_at);
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     -- 古いビルドが残した不要テーブルを掃除する。
     DROP TABLE IF EXISTS osm_cache;
     DROP TABLE IF EXISTS task_events;
@@ -72,4 +76,25 @@ export async function getAllPoints(): Promise<Point[]> {
     'SELECT id, lat, lng, recorded_at FROM points ORDER BY recorded_at ASC',
   );
   return rows.map(rowToPoint);
+}
+
+const TRACKING_ENABLED_KEY = 'tracking_enabled';
+
+export async function getTrackingEnabled(): Promise<boolean> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    TRACKING_ENABLED_KEY,
+  );
+  // 未保存（初回起動）は停止中をデフォルトにする。
+  return row?.value === '1';
+}
+
+export async function setTrackingEnabled(enabled: boolean): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    TRACKING_ENABLED_KEY,
+    enabled ? '1' : '0',
+  );
 }

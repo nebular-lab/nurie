@@ -49,14 +49,18 @@ TaskManager.defineTask<LocationTaskData>(TASK_NAME, async ({ data, error }) => {
   }
 });
 
-export async function startTracking() {
-  // 既に登録済みの場合でも、ビルドをまたいでオプションを確実に反映させるために
-  // 一度停止してから再登録する。startLocationUpdatesAsync の登録は再インストールを
-  // またいで残るため、早期 return すると古いオプションのまま動き続ける。
+export async function stopTracking() {
   const started = await Location.hasStartedLocationUpdatesAsync(TASK_NAME);
   if (started) {
     await Location.stopLocationUpdatesAsync(TASK_NAME);
   }
+}
+
+export async function startTracking() {
+  // 既に登録済みの場合でも、ビルドをまたいでオプションを確実に反映させるために
+  // 一度停止してから再登録する。startLocationUpdatesAsync の登録は再インストールを
+  // またいで残るため、早期 return すると古いオプションのまま動き続ける。
+  await stopTracking();
   // iOS 16.4 以降、startUpdatingLocation + startMonitoringSignificantLocationChanges
   // の併用 (expo-location は内部で両方呼ぶ) + distanceFilter 設定 +
   // showsBackgroundLocationIndicator: false の 3 条件が揃うと、画面ロック数秒で

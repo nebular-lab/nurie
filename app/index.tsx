@@ -14,6 +14,7 @@ import { RawPointsOverlay } from '@/lib/components/RawPointsOverlay';
 import { RecenterButton } from '@/lib/components/RecenterButton';
 import { StatusBadge } from '@/lib/components/StatusBadge';
 import { TileLoadingOverlay } from '@/lib/components/TileLoadingOverlay';
+import { TrackingToggleButton } from '@/lib/components/TrackingToggleButton';
 import { WalkedRoadsOverlay } from '@/lib/components/WalkedRoadsOverlay';
 import { BUFFER_M } from '@/lib/constants';
 import { useCoverage } from '@/lib/hooks/useCoverage';
@@ -37,7 +38,7 @@ export default function Index() {
   const recenterMap = useRecenterMap(centerMapOn);
   const trackPoints = useStoredTrackPoints();
   const roads = useWalkableRoads();
-  const tracking = useLocationTracking();
+  const { state: tracking, start, stop } = useLocationTracking();
   const coverage = useCoverage(
     trackPoints.status === 'ready' ? trackPoints.points : null,
     roads.status === 'ready' ? roads.list : null,
@@ -97,6 +98,18 @@ export default function Index() {
       </View>
 
       <RecenterButton bottom={insets.bottom + 24} onPress={recenterMap} />
+      <TrackingToggleButton
+        bottom={insets.bottom + 24 + 48 + 12}
+        isEnabled={tracking.isEnabled}
+        disabled={tracking.status === 'starting'}
+        onPress={() => {
+          if (tracking.isEnabled) {
+            void stop();
+          } else {
+            void start();
+          }
+        }}
+      />
       <TileLoadingOverlay visible={!tilesReady} />
     </>
   );

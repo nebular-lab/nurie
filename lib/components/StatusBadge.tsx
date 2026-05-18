@@ -26,6 +26,9 @@ export function StatusBadge({
   if (tracking.status === 'error') {
     return <ErrorRow message={`記録エラー: ${tracking.message}`} />;
   }
+  if (tracking.status === 'paused') {
+    return <LoadingRow message="記録停止中" />;
+  }
   if (trackPoints.status === 'error') {
     return (
       <ErrorRow message={`歩行履歴の読み込み失敗: ${trackPoints.message}`} />
