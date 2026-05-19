@@ -12,11 +12,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RadiusBandsOverlay } from '@/lib/components/RadiusBandsOverlay';
 import { RawPointsOverlay } from '@/lib/components/RawPointsOverlay';
 import { RecenterButton } from '@/lib/components/RecenterButton';
+import { SignInModal } from '@/lib/components/SignInModal';
 import { StatusBadge } from '@/lib/components/StatusBadge';
 import { TileLoadingOverlay } from '@/lib/components/TileLoadingOverlay';
 import { TrackingToggleButton } from '@/lib/components/TrackingToggleButton';
 import { WalkedRoadsOverlay } from '@/lib/components/WalkedRoadsOverlay';
 import { BUFFER_M } from '@/lib/constants';
+import { useAuthSession } from '@/lib/hooks/useAuthSession';
 import { useCoverage } from '@/lib/hooks/useCoverage';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
 import { useLocationTracking } from '@/lib/hooks/useLocationTracking';
@@ -24,6 +26,7 @@ import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
 import { useWalkableRoads } from '@/lib/hooks/useWalkableRoads';
 import { useRecenterMap } from '@/lib/hooks/useRecenterMap';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
+import { useSyncTask } from '@/lib/hooks/useSyncTask';
 import { useTilesReady } from '@/lib/hooks/useTilesReady';
 
 // Stadia Alidade Smooth: データオーバーレイ用に設計された neutral basemap。
@@ -39,6 +42,8 @@ export default function Index() {
   const trackPoints = useStoredTrackPoints();
   const roads = useWalkableRoads();
   const { state: tracking, start, stop } = useLocationTracking();
+  const auth = useAuthSession();
+  useSyncTask(auth.status === 'signed-in' ? auth.user.id : null);
   const coverage = useCoverage(
     trackPoints.status === 'ready' ? trackPoints.points : null,
     roads.status === 'ready' ? roads.list : null,
@@ -111,6 +116,9 @@ export default function Index() {
         }}
       />
       <TileLoadingOverlay visible={!tilesReady} />
+      <SignInModal
+        visible={auth.status === 'signed-out' || auth.status === 'error'}
+      />
     </>
   );
 }
