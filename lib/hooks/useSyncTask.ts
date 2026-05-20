@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { getUnsyncedPoints, markPointsSynced } from '../db';
 import { supabase } from '../supabase';
@@ -8,7 +8,16 @@ import { supabase } from '../supabase';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 500;
 
-export function useSyncTask(userId: string | null) {
+export type SyncStatus = {
+  uploadedTotal: number;
+  lastError: string | null;
+};
+
+export function useSyncTask(userId: string | null): SyncStatus {
+  const [status, setStatus] = useState<SyncStatus>({
+    uploadedTotal: 0,
+    lastError: null,
+  });
   // 直前の sync が動いている間に重ねて発火しないようにするロック。
   const inFlightRef = useRef(false);
 
@@ -24,11 +33,13 @@ export function useSyncTask(userId: string | null) {
         const points = await getUnsyncedPoints(BATCH_SIZE);
         if (points.length === 0) return;
 
+        // expo-location の timestamp は端末によって小数点付き ms が返るケースがあり、
+        // Postgres の bigint に入らない。整数に丸める。
         const rows = points.map((p) => ({
           user_id: userId,
           lat: p.lat,
           lng: p.lng,
-          recorded_at: p.recordedAt,
+          recorded_at: Math.round(p.recordedAt),
         }));
 
         const { error } = await supabase.from('points').upsert(rows, {
@@ -37,13 +48,21 @@ export function useSyncTask(userId: string | null) {
         });
 
         if (error) {
-          console.warn('[sync] upsert failed', error.message);
+          setStatus((prev) => ({
+            ...prev,
+            lastError: `${error.message}${error.code ? ` (code: ${error.code})` : ''}`,
+          }));
           return;
         }
 
         await markPointsSynced(points.map((p) => p.id));
+        setStatus((prev) => ({
+          uploadedTotal: prev.uploadedTotal + points.length,
+          lastError: null,
+        }));
       } catch (e) {
-        console.warn('[sync] error', e);
+        const message = e instanceof Error ? e.message : String(e);
+        setStatus((prev) => ({ ...prev, lastError: message }));
       } finally {
         inFlightRef.current = false;
       }
@@ -57,4 +76,6 @@ export function useSyncTask(userId: string | null) {
       clearInterval(id);
     };
   }, [userId]);
+
+  return status;
 }

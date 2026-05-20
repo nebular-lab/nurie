@@ -1,63 +1,42 @@
-import { useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import MapView, { UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RadiusBandsOverlay } from '@/lib/components/RadiusBandsOverlay';
-import { RawPointsOverlay } from '@/lib/components/RawPointsOverlay';
-import { RecenterButton } from '@/lib/components/RecenterButton';
+import { Map } from '@/lib/components/Map';
 import { SignInModal } from '@/lib/components/SignInModal';
 import { StatusBadge } from '@/lib/components/StatusBadge';
-import { TileLoadingOverlay } from '@/lib/components/TileLoadingOverlay';
 import { TrackingToggleButton } from '@/lib/components/TrackingToggleButton';
-import { WalkedRoadsOverlay } from '@/lib/components/WalkedRoadsOverlay';
 import { BUFFER_M } from '@/lib/constants';
 import { useAuthSession } from '@/lib/hooks/useAuthSession';
 import { useCoverage } from '@/lib/hooks/useCoverage';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
 import { useLocationTracking } from '@/lib/hooks/useLocationTracking';
-import { MAP_ZOOM_DELTA, useMapCamera } from '@/lib/hooks/useMapCamera';
 import { useWalkableRoads } from '@/lib/hooks/useWalkableRoads';
-import { useRecenterMap } from '@/lib/hooks/useRecenterMap';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 import { useSyncTask } from '@/lib/hooks/useSyncTask';
-import { useTilesReady } from '@/lib/hooks/useTilesReady';
 
-// Stadia Alidade Smooth: データオーバーレイ用に設計された neutral basemap。
-// API キーは .env の EXPO_PUBLIC_STADIA_API_KEY から読む。未設定なら起動を止めて画面に出す
-// (空文字で結合して壊れた URL を作るのは不自然な fallback)。
-const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY;
+const isWeb = Platform.OS === 'web';
 
 export default function Index() {
   const initial = useInitialLocation();
   const insets = useSafeAreaInsets();
-  const { mapRef, centerMapOn, onMapReady } = useMapCamera();
-  const recenterMap = useRecenterMap(centerMapOn);
   const trackPoints = useStoredTrackPoints();
   const roads = useWalkableRoads();
   const { state: tracking, start, stop } = useLocationTracking();
   const auth = useAuthSession();
-  useSyncTask(auth.status === 'signed-in' ? auth.user.id : null);
+  const sync = useSyncTask(auth.status === 'signed-in' ? auth.user.id : null);
   const coverage = useCoverage(
     trackPoints.status === 'ready' ? trackPoints.points : null,
     roads.status === 'ready' ? roads.list : null,
     BUFFER_M,
   );
 
-  const [mapReady, setMapReady] = useState(false);
-  const tilesReady = useTilesReady(mapReady);
-
-  if (!STADIA_API_KEY) {
-    return (
-      <ErrorScreen title="EXPO_PUBLIC_STADIA_API_KEY が設定されていません" />
-    );
-  }
   if (initial.status === 'loading') {
     return <LoadingScreen />;
   }
@@ -71,27 +50,13 @@ export default function Index() {
     );
   }
 
-  const tileUrl = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
-
   return (
     <>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={{ ...initial.coords, ...MAP_ZOOM_DELTA }}
-        showsUserLocation
-        onMapReady={() => {
-          onMapReady();
-          setMapReady(true);
-        }}
-      >
-        <UrlTile urlTemplate={tileUrl} maximumZ={20} shouldReplaceMapContent />
-        <RadiusBandsOverlay />
-        <WalkedRoadsOverlay coverage={coverage} />
-        {trackPoints.status === 'ready' && (
-          <RawPointsOverlay points={trackPoints.points} />
-        )}
-      </MapView>
+      <Map
+        initialCoords={initial.coords}
+        coverage={coverage}
+        trackPoints={trackPoints}
+      />
 
       <View style={[styles.panel, { top: insets.top + 12 }]}>
         <StatusBadge
@@ -100,22 +65,31 @@ export default function Index() {
           trackPoints={trackPoints}
           coverage={coverage}
         />
+        {sync.lastError && (
+          <Text style={styles.syncError}>同期エラー: {sync.lastError}</Text>
+        )}
+        {sync.uploadedTotal > 0 && !sync.lastError && (
+          <Text style={styles.syncInfo}>
+            同期済み: {sync.uploadedTotal} 件
+          </Text>
+        )}
       </View>
 
-      <RecenterButton bottom={insets.bottom + 24} onPress={recenterMap} />
-      <TrackingToggleButton
-        bottom={insets.bottom + 32}
-        isEnabled={tracking.isEnabled}
-        disabled={tracking.status === 'starting'}
-        onPress={() => {
-          if (tracking.isEnabled) {
-            void stop();
-          } else {
-            void start();
-          }
-        }}
-      />
-      <TileLoadingOverlay visible={!tilesReady} />
+      {!isWeb && (
+        <TrackingToggleButton
+          bottom={insets.bottom + 32}
+          isEnabled={tracking.isEnabled}
+          disabled={tracking.status === 'starting'}
+          onPress={() => {
+            if (tracking.isEnabled) {
+              void stop();
+            } else {
+              void start();
+            }
+          }}
+        />
+      )}
+
       <SignInModal
         visible={auth.status === 'signed-out' || auth.status === 'error'}
       />
@@ -154,9 +128,6 @@ function ErrorScreen({
 }
 
 const styles = StyleSheet.create({
-  map: {
-    flex: 1,
-  },
   center: {
     flex: 1,
     alignItems: 'center',
@@ -199,5 +170,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 3,
+    gap: 4,
+  },
+  syncError: {
+    fontSize: 12,
+    color: '#c0392b',
+  },
+  syncInfo: {
+    fontSize: 12,
+    color: '#666',
   },
 });
