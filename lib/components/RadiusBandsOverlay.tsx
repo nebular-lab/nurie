@@ -2,7 +2,7 @@ import { Circle } from 'react-native-maps';
 
 import { HOME, RADIUS_BANDS_M } from '../constants';
 
-const STROKE_COLOR = 'rgba(0, 0, 0, 0.35)';
+import { RADIUS_BAND_STYLE } from './mapOverlayStyle';
 
 export function RadiusBandsOverlay() {
   return (
@@ -12,7 +12,7 @@ export function RadiusBandsOverlay() {
           key={`band-${radius}`}
           center={{ latitude: HOME.lat, longitude: HOME.lng }}
           radius={radius}
-          strokeColor={STROKE_COLOR}
+          strokeColor={RADIUS_BAND_STYLE.strokeColor}
           strokeWidth={1}
           fillColor="transparent"
         />

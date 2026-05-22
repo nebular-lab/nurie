@@ -1,4 +1,4 @@
-// Web 版地図。MapLibre GL JS で Stadia タイル + 黄ドット + 半径バンド円を描画する。
+// Web 版地図。MapLibre GL JS で Stadia タイル + 歩いた道 + 黄ドット + 半径バンド円を描画する。
 // 閲覧専用なので操作系 (recenter ボタン等) は持たない。
 
 import maplibregl from 'maplibre-gl';
@@ -8,8 +8,11 @@ import { useEffect, useRef } from 'react';
 import { HOME, RADIUS_BANDS_M } from '../constants';
 
 import type { MapProps } from './Map.native';
-
-const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY;
+import {
+  RADIUS_BAND_STYLE,
+  RAW_POINT_STYLE,
+  WALKED_ROAD_STYLE,
+} from './mapOverlayStyle';
 
 // 半径 m を緯度・経度に対応する近似的な円を表す GeoJSON に変換する。
 // MapLibre には Circle の primitive が無いので polygon で近似する。
@@ -36,7 +39,32 @@ function circleAsPolygon(
   };
 }
 
-export function Map({ initialCoords, trackPoints }: MapProps) {
+function lineFeatures(
+  segments: [number, number][][],
+): GeoJSON.Feature<GeoJSON.LineString>[] {
+  return segments
+    .filter((seg) => seg.length >= 2)
+    .map((seg) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: seg },
+      properties: {},
+    }));
+}
+
+function setGeoJsonSource(
+  map: maplibregl.Map,
+  sourceId: string,
+  data: GeoJSON.GeoJSON,
+) {
+  const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
+  if (source) {
+    source.setData(data);
+  } else {
+    map.addSource(sourceId, { type: 'geojson', data });
+  }
+}
+
+export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
   // React Native Web では <View> の ref が underlying div を返すが、ここでは MapLibre が
   // HTMLElement を要求するので素の <div> を使う。.web.tsx なので web 専用で OK。
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -47,24 +75,9 @@ export function Map({ initialCoords, trackPoints }: MapProps) {
     if (!containerRef.current) return;
     if (mapRef.current) return;
 
-    const tileUrl = `https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}@2x.png?api_key=${STADIA_API_KEY}`;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          stadia: {
-            type: 'raster',
-            tiles: [tileUrl],
-            tileSize: 256,
-            attribution:
-              '© <a href="https://stadiamaps.com/">Stadia Maps</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          },
-        },
-        layers: [
-          { id: 'stadia', type: 'raster', source: 'stadia', minzoom: 0, maxzoom: 22 },
-        ],
-      },
+      style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
       center: [initialCoords.longitude, initialCoords.latitude],
       zoom: 14,
     });
@@ -82,9 +95,62 @@ export function Map({ initialCoords, trackPoints }: MapProps) {
         type: 'line',
         source: 'bands',
         paint: {
-          'line-color': '#888',
+          'line-color': RADIUS_BAND_STYLE.strokeColor,
           'line-width': 1,
           'line-dasharray': [3, 3],
+        },
+      });
+
+      map.addSource('roads-past', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'roads-past',
+        type: 'line',
+        source: 'roads-past',
+        paint: {
+          'line-color': WALKED_ROAD_STYLE.pastColor,
+          'line-width': WALKED_ROAD_STYLE.strokeWidth,
+          'line-opacity': 1,
+        },
+      });
+
+      map.addSource('roads-today', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'roads-today',
+        type: 'line',
+        source: 'roads-today',
+        paint: {
+          'line-color': WALKED_ROAD_STYLE.todayColor,
+          'line-width': WALKED_ROAD_STYLE.strokeWidth,
+          'line-opacity': 1,
+        },
+      });
+
+      map.addSource('points', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      map.addLayer({
+        id: 'points-fill',
+        type: 'fill',
+        source: 'points',
+        paint: {
+          'fill-color': RAW_POINT_STYLE.fillColor,
+          'fill-opacity': 1,
+        },
+      });
+      map.addLayer({
+        id: 'points-outline',
+        type: 'line',
+        source: 'points',
+        paint: {
+          'line-color': RAW_POINT_STYLE.strokeColor,
+          'line-width': 1,
         },
       });
     });
@@ -93,7 +159,35 @@ export function Map({ initialCoords, trackPoints }: MapProps) {
       map.remove();
       mapRef.current = null;
     };
-  }, [initialCoords]);
+  }, [initialCoords.latitude, initialCoords.longitude]);
+
+  // coverage の更新を赤/緑の道路に反映。Native と同じく過去 → 今日の順で重ねる。
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!coverage) return;
+
+    const apply = () => {
+      const pastFeatures = coverage.roads.flatMap((rc) =>
+        lineFeatures(rc.walkedPastSegments),
+      );
+      const todayFeatures = coverage.roads.flatMap((rc) =>
+        lineFeatures(rc.walkedTodaySegments),
+      );
+
+      setGeoJsonSource(map, 'roads-past', {
+        type: 'FeatureCollection',
+        features: pastFeatures,
+      });
+      setGeoJsonSource(map, 'roads-today', {
+        type: 'FeatureCollection',
+        features: todayFeatures,
+      });
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once('load', apply);
+  }, [coverage]);
 
   // trackPoints の更新を反映。
   useEffect(() => {
@@ -102,34 +196,14 @@ export function Map({ initialCoords, trackPoints }: MapProps) {
     if (trackPoints.status !== 'ready') return;
 
     const apply = () => {
-      const features = trackPoints.points.map<GeoJSON.Feature<GeoJSON.Point>>(
-        (p) => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-          properties: {},
-        }),
+      const features = trackPoints.points.map((p) =>
+        circleAsPolygon({ lat: p.lat, lng: p.lng }, RAW_POINT_STYLE.radiusM, 24),
       );
-      const data: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+      const data: GeoJSON.FeatureCollection<GeoJSON.Polygon> = {
         type: 'FeatureCollection',
         features,
       };
-      const src = map.getSource('points') as maplibregl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(data);
-      } else {
-        map.addSource('points', { type: 'geojson', data });
-        map.addLayer({
-          id: 'points',
-          type: 'circle',
-          source: 'points',
-          paint: {
-            'circle-radius': 4,
-            'circle-color': '#ffd400',
-            'circle-stroke-color': '#666',
-            'circle-stroke-width': 1,
-          },
-        });
-      }
+      setGeoJsonSource(map, 'points', data);
     };
 
     if (map.isStyleLoaded()) apply();
