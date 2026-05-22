@@ -58,7 +58,13 @@ export default function Index() {
         trackPoints={trackPoints}
       />
 
-      <View style={[styles.panel, { top: insets.top + 12 }]}>
+      <View
+        style={[
+          styles.panel,
+          isWeb && styles.webPanel,
+          { top: insets.top + 12 },
+        ]}
+      >
         <StatusBadge
           roads={roads}
           tracking={tracking}
@@ -171,6 +177,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
     gap: 4,
+  },
+  webPanel: {
+    left: '50%',
+    right: 'auto',
+    width: 360,
+    transform: [{ translateX: -180 }],
   },
   syncError: {
     fontSize: 12,
