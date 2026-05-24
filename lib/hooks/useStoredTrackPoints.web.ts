@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 
-import { getAllPoints, type Point } from '../db';
+import type { Point } from '../db';
+import { fetchRemoteTracks, tracksToPoints, type Track } from '../remoteTracks';
 import { supabase } from '../supabase';
 
 export type StoredTrackPointsState =
   | { status: 'loading' }
-  | { status: 'ready'; points: Point[] }
+  | { status: 'ready'; points: Point[]; tracks: Track[] }
   | { status: 'error'; message: string };
 
 export function useStoredTrackPoints(): StoredTrackPointsState {
@@ -20,9 +21,10 @@ export function useStoredTrackPoints(): StoredTrackPointsState {
 
     const load = async () => {
       try {
-        const next = await getAllPoints();
+        const tracks = await fetchRemoteTracks();
+        const next = tracksToPoints(tracks);
         if (cancelled) return;
-        setState({ status: 'ready', points: next });
+        setState({ status: 'ready', points: next, tracks });
       } catch (e) {
         if (cancelled) return;
         const message = e instanceof Error ? e.message : '不明なエラー';

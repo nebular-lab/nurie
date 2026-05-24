@@ -14,9 +14,9 @@ import { useRecenterMap } from '../hooks/useRecenterMap';
 import { useTilesReady } from '../hooks/useTilesReady';
 
 import { RadiusBandsOverlay } from './RadiusBandsOverlay';
-import { RawPointsOverlay } from './RawPointsOverlay';
 import { RecenterButton } from './RecenterButton';
 import { TileLoadingOverlay } from './TileLoadingOverlay';
+import { TrackPathsOverlay } from './TrackPathsOverlay';
 import { WalkedRoadsOverlay } from './WalkedRoadsOverlay';
 
 const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY;
@@ -52,7 +52,7 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
         <RadiusBandsOverlay />
         <WalkedRoadsOverlay coverage={coverage} />
         {trackPoints.status === 'ready' && (
-          <RawPointsOverlay points={trackPoints.points} />
+          <TrackPathsOverlay tracks={trackPoints.tracks} />
         )}
       </MapView>
 

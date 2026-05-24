@@ -5,12 +5,13 @@ import { DeviceEventEmitter } from 'react-native';
 import { AREA_RADIUS_M, HOME } from './constants';
 import { insertPoint } from './db';
 import { haversineMeters } from './geo';
+import { POINTS_CHANGED_EVENT } from './pointEvents';
 
 const TASK_NAME = 'nurie-location-tracking';
 
 // foreground 中に新しい点が DB に書かれたことを React 側へ通知する。
 // アプリが kill された状態でタスクが起きた場合は listener が居ないので無害。
-export const POINT_ADDED_EVENT = 'nurie:point-added';
+export const POINT_ADDED_EVENT = POINTS_CHANGED_EVENT;
 
 type LocationTaskData = {
   locations: Location.LocationObject[];

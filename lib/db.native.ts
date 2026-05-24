@@ -11,7 +11,7 @@ type PointRow = {
   id: number;
   lat: number;
   lng: number;
-  recorded_at: number;
+  recorded_at_ms: number;
 };
 
 const DB_NAME = 'nurie.db';
@@ -22,14 +22,15 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync(DB_NAME);
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS points (
+    -- Supabase の tracks を正本にするため、SQLite は送信前の点だけを持つ。
+    DROP TABLE IF EXISTS points;
+    CREATE TABLE IF NOT EXISTS queued_points (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lat REAL NOT NULL,
       lng REAL NOT NULL,
-      recorded_at INTEGER NOT NULL,
-      synced INTEGER NOT NULL DEFAULT 0
+      recorded_at_ms INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_points_recorded_at ON points (recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_queued_points_recorded_at ON queued_points (recorded_at_ms);
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -38,21 +39,6 @@ async function initDb(): Promise<SQLite.SQLiteDatabase> {
     DROP TABLE IF EXISTS osm_cache;
     DROP TABLE IF EXISTS task_events;
   `);
-
-  // 既存ビルドからの DB に synced カラムが無ければ後付けで足す。
-  // SQLite には ADD COLUMN IF NOT EXISTS が無いので PRAGMA で確認する。
-  const cols = await db.getAllAsync<{ name: string }>(
-    "PRAGMA table_info('points')",
-  );
-  if (!cols.some((c) => c.name === 'synced')) {
-    await db.execAsync(
-      'ALTER TABLE points ADD COLUMN synced INTEGER NOT NULL DEFAULT 0',
-    );
-  }
-  // 未同期点を毎回フルスキャンしないためのインデックス。
-  await db.execAsync(
-    'CREATE INDEX IF NOT EXISTS idx_points_synced ON points (synced)',
-  );
 
   return db;
 }
@@ -69,7 +55,7 @@ function rowToPoint(row: PointRow): Point {
     id: row.id,
     lat: row.lat,
     lng: row.lng,
-    recordedAt: row.recorded_at,
+    recordedAt: row.recorded_at_ms,
   };
 }
 
@@ -80,17 +66,17 @@ export async function insertPoint(point: {
 }): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    'INSERT INTO points (lat, lng, recorded_at) VALUES (?, ?, ?)',
+    'INSERT INTO queued_points (lat, lng, recorded_at_ms) VALUES (?, ?, ?)',
     point.lat,
     point.lng,
-    point.recordedAt,
+    Math.round(point.recordedAt),
   );
 }
 
 export async function getAllPoints(): Promise<Point[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<PointRow>(
-    'SELECT id, lat, lng, recorded_at FROM points ORDER BY recorded_at ASC',
+    'SELECT id, lat, lng, recorded_at_ms FROM queued_points ORDER BY recorded_at_ms ASC',
   );
   return rows.map(rowToPoint);
 }
@@ -98,18 +84,18 @@ export async function getAllPoints(): Promise<Point[]> {
 export async function getUnsyncedPoints(limit: number): Promise<Point[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<PointRow>(
-    'SELECT id, lat, lng, recorded_at FROM points WHERE synced = 0 ORDER BY recorded_at ASC LIMIT ?',
+    'SELECT id, lat, lng, recorded_at_ms FROM queued_points ORDER BY recorded_at_ms ASC LIMIT ?',
     limit,
   );
   return rows.map(rowToPoint);
 }
 
-export async function markPointsSynced(ids: number[]): Promise<void> {
+export async function deleteQueuedPoints(ids: number[]): Promise<void> {
   if (ids.length === 0) return;
   const db = await getDb();
   const placeholders = ids.map(() => '?').join(',');
   await db.runAsync(
-    `UPDATE points SET synced = 1 WHERE id IN (${placeholders})`,
+    `DELETE FROM queued_points WHERE id IN (${placeholders})`,
     ...ids,
   );
 }

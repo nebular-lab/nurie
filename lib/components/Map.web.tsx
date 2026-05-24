@@ -6,11 +6,12 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef } from 'react';
 
 import { HOME, RADIUS_BANDS_M } from '../constants';
+import { smoothCoords } from '../smoothPath';
 
 import type { MapProps } from './Map.native';
 import {
   RADIUS_BAND_STYLE,
-  RAW_POINT_STYLE,
+  TRACK_PATH_STYLE,
   WALKED_ROAD_STYLE,
 } from './mapOverlayStyle';
 
@@ -49,6 +50,22 @@ function lineFeatures(
       geometry: { type: 'LineString', coordinates: seg },
       properties: {},
     }));
+}
+
+function trackFeatures(
+  tracks: { path: { coordinates: [number, number][] } }[],
+): GeoJSON.Feature<GeoJSON.LineString>[] {
+  return tracks.flatMap((track) => {
+    const coords = smoothCoords(track.path.coordinates);
+    if (coords.length < 2) return [];
+    return [
+      {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: coords },
+        properties: {},
+      },
+    ];
+  });
 }
 
 function setGeoJsonSource(
@@ -109,6 +126,10 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
         id: 'roads-past',
         type: 'line',
         source: 'roads-past',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
         paint: {
           'line-color': WALKED_ROAD_STYLE.pastColor,
           'line-width': WALKED_ROAD_STYLE.strokeWidth,
@@ -124,6 +145,10 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
         id: 'roads-today',
         type: 'line',
         source: 'roads-today',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
         paint: {
           'line-color': WALKED_ROAD_STYLE.todayColor,
           'line-width': WALKED_ROAD_STYLE.strokeWidth,
@@ -131,26 +156,36 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
         },
       });
 
-      map.addSource('points', {
+      map.addSource('tracks', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
       map.addLayer({
-        id: 'points-fill',
-        type: 'fill',
-        source: 'points',
+        id: 'tracks-casing',
+        type: 'line',
+        source: 'tracks',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
         paint: {
-          'fill-color': RAW_POINT_STYLE.fillColor,
-          'fill-opacity': 1,
+          'line-color': TRACK_PATH_STYLE.casingColor,
+          'line-width': TRACK_PATH_STYLE.casingWidth,
+          'line-opacity': 1,
         },
       });
       map.addLayer({
-        id: 'points-outline',
+        id: 'tracks',
         type: 'line',
-        source: 'points',
+        source: 'tracks',
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
         paint: {
-          'line-color': RAW_POINT_STYLE.strokeColor,
-          'line-width': 1,
+          'line-color': TRACK_PATH_STYLE.strokeColor,
+          'line-width': TRACK_PATH_STYLE.strokeWidth,
+          'line-opacity': 1,
         },
       });
     });
@@ -189,21 +224,18 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
     else map.once('load', apply);
   }, [coverage]);
 
-  // trackPoints の更新を反映。
+  // tracks の更新を滑らかな経路線として反映。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (trackPoints.status !== 'ready') return;
 
     const apply = () => {
-      const features = trackPoints.points.map((p) =>
-        circleAsPolygon({ lat: p.lat, lng: p.lng }, RAW_POINT_STYLE.radiusM, 24),
-      );
-      const data: GeoJSON.FeatureCollection<GeoJSON.Polygon> = {
+      const data: GeoJSON.FeatureCollection<GeoJSON.LineString> = {
         type: 'FeatureCollection',
-        features,
+        features: trackFeatures(trackPoints.tracks),
       };
-      setGeoJsonSource(map, 'points', data);
+      setGeoJsonSource(map, 'tracks', data);
     };
 
     if (map.isStyleLoaded()) apply();

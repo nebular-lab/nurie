@@ -2,14 +2,21 @@ import { useEffect, useState } from 'react';
 import { AppState, DeviceEventEmitter } from 'react-native';
 
 import { getAllPoints, type Point } from '../db';
-import { POINT_ADDED_EVENT } from '../locationTask';
+import { POINTS_CHANGED_EVENT } from '../pointEvents';
+import {
+  fetchRemoteTracks,
+  reindexPoints,
+  tracksToPoints,
+  type Track,
+} from '../remoteTracks';
+import { supabase } from '../supabase';
 
 // foreground 中の追記イベントは連続発火するので、まとめて 1 回だけ DB を読む。
 const RELOAD_DEBOUNCE_MS = 1000;
 
 export type StoredTrackPointsState =
   | { status: 'loading' }
-  | { status: 'ready'; points: Point[] }
+  | { status: 'ready'; points: Point[]; tracks: Track[] }
   | { status: 'error'; message: string };
 
 export function useStoredTrackPoints(): StoredTrackPointsState {
@@ -23,7 +30,17 @@ export function useStoredTrackPoints(): StoredTrackPointsState {
 
     const reload = async () => {
       try {
-        const next = await getAllPoints();
+        const [{ data }, queuedPoints] = await Promise.all([
+          supabase.auth.getSession(),
+          getAllPoints(),
+        ]);
+        const remoteTracks = data.session ? await fetchRemoteTracks() : [];
+        const queuedTracks = buildQueuedTracks(queuedPoints);
+        const nextTracks = [...remoteTracks, ...queuedTracks];
+        const next = reindexPoints([
+          ...tracksToPoints(remoteTracks),
+          ...queuedPoints,
+        ]);
         if (cancelled) return;
         // 末尾 id と件数が同じなら同じ点列とみなして参照を維持し、下流の useMemo を起こさない。
         setState((prev) => {
@@ -36,7 +53,7 @@ export function useStoredTrackPoints(): StoredTrackPointsState {
               return prev;
             }
           }
-          return { status: 'ready', points: next };
+          return { status: 'ready', points: next, tracks: nextTracks };
         });
       } catch (e) {
         if (cancelled) return;
@@ -58,17 +75,37 @@ export function useStoredTrackPoints(): StoredTrackPointsState {
       if (s === 'active') reload();
     });
     const pointSub = DeviceEventEmitter.addListener(
-      POINT_ADDED_EVENT,
+      POINTS_CHANGED_EVENT,
       scheduleReload,
     );
+    const { data: authSub } = supabase.auth.onAuthStateChange(() => {
+      scheduleReload();
+    });
 
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
       appSub.remove();
       pointSub.remove();
+      authSub.subscription.unsubscribe();
     };
   }, []);
 
   return state;
+}
+
+function buildQueuedTracks(points: Point[]): Track[] {
+  if (points.length === 0) return [];
+  const sorted = [...points].sort((a, b) => a.recordedAt - b.recordedAt);
+  return [
+    {
+      id: 'queued',
+      startedAt: sorted[0].recordedAt,
+      endedAt: sorted.at(-1)?.recordedAt ?? sorted[0].recordedAt,
+      path: {
+        type: 'LineString',
+        coordinates: sorted.map((p) => [p.lng, p.lat]),
+      },
+    },
+  ];
 }

@@ -10,6 +10,13 @@ export const RAW_POINT_STYLE = {
   radiusM: 3,
 } as const;
 
+export const TRACK_PATH_STYLE = {
+  strokeColor: 'rgba(0, 122, 255, 0.78)',
+  casingColor: 'rgba(255, 255, 255, 0.85)',
+  strokeWidth: 4,
+  casingWidth: 7,
+} as const;
+
 export const RADIUS_BAND_STYLE = {
   strokeColor: 'rgba(0, 0, 0, 0.35)',
 } as const;
