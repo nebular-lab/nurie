@@ -1,19 +1,34 @@
-// Web 版地図。MapLibre GL JS で Stadia タイル + 歩いた道 + 黄ドット + 半径バンド円を描画する。
-// 閲覧専用なので操作系 (recenter ボタン等) は持たない。
+// Web 版地図。MapLibre GL JS で Stadia タイル + 経路 + fog + 半径バンド円を描画する。
 
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HOME, RADIUS_BANDS_M } from '../constants';
+import {
+  buildFogBoundaryEdges,
+  buildMapBounds,
+  buildOuterMaskPolygon,
+  buildFogHexLayers,
+} from '../fogHex';
+import {
+  buildPlaybackPath,
+  coordAtDistance,
+  kmhToMetersPerMs,
+  PLAYBACK_SPEED_KMH,
+} from '../playbackPath';
 import { smoothCoords } from '../smoothPath';
 
 import type { MapProps } from './Map.native';
 import {
+  FOG_STYLE,
+  PLAYBACK_MARKER_STYLE,
   RADIUS_BAND_STYLE,
   TRACK_PATH_STYLE,
-  WALKED_ROAD_STYLE,
 } from './mapOverlayStyle';
+
+const STADIA_API_KEY = process.env.EXPO_PUBLIC_STADIA_API_KEY;
+const STAMEN_TERRAIN_STYLE_URL = `https://tiles.stadiamaps.com/styles/stamen_terrain.json?api_key=${STADIA_API_KEY}`;
 
 // 半径 m を緯度・経度に対応する近似的な円を表す GeoJSON に変換する。
 // MapLibre には Circle の primitive が無いので polygon で近似する。
@@ -40,16 +55,39 @@ function circleAsPolygon(
   };
 }
 
-function lineFeatures(
+function radiusLabelFeature(
+  center: { lat: number; lng: number },
+  radiusM: number,
+): GeoJSON.Feature<GeoJSON.Point> {
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [center.lng, center.lat + radiusM / 111320],
+    },
+    properties: {
+      label: `${radiusM / 1000}km`,
+    },
+  };
+}
+
+function multiLineFeatureCollection(
   segments: [number, number][][],
-): GeoJSON.Feature<GeoJSON.LineString>[] {
-  return segments
-    .filter((seg) => seg.length >= 2)
-    .map((seg) => ({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: seg },
-      properties: {},
-    }));
+): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+  const coordinates = segments.filter((seg) => seg.length >= 2);
+  if (coordinates.length === 0) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'MultiLineString', coordinates },
+        properties: {},
+      },
+    ],
+  };
 }
 
 function trackFeatures(
@@ -68,6 +106,43 @@ function trackFeatures(
   });
 }
 
+function playbackFeature(
+  coord: [number, number] | null,
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  if (!coord) return { type: 'FeatureCollection', features: [] };
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: coord },
+        properties: {},
+      },
+    ],
+  };
+}
+
+function multiPolygonFeatureCollection(
+  polygons: [number, number][][],
+): GeoJSON.FeatureCollection<GeoJSON.MultiPolygon> {
+  if (polygons.length === 0) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates: polygons.map((polygon) => [polygon]),
+        },
+        properties: {},
+      },
+    ],
+  };
+}
+
 function setGeoJsonSource(
   map: maplibregl.Map,
   sourceId: string,
@@ -81,11 +156,83 @@ function setGeoJsonSource(
   }
 }
 
-export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
+function addGeoJsonSource(
+  map: maplibregl.Map,
+  sourceId: string,
+  data: GeoJSON.GeoJSON,
+) {
+  if (map.getSource(sourceId)) return;
+  map.addSource(sourceId, { type: 'geojson', data });
+}
+
+function addLayerOnce(map: maplibregl.Map, layer: maplibregl.LayerSpecification) {
+  if (map.getLayer(layer.id)) return;
+  map.addLayer(layer);
+}
+
+function moveLayerToTop(map: maplibregl.Map, layerId: string) {
+  if (map.getLayer(layerId)) map.moveLayer(layerId);
+}
+
+export function Map({ initialCoords, trackPoints }: MapProps) {
   // React Native Web では <View> の ref が underlying div を返すが、ここでは MapLibre が
   // HTMLElement を要求するので素の <div> を使う。.web.tsx なので web 専用で OK。
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const [isFogReady, setIsFogReady] = useState(false);
+  const [playbackDistanceM, setPlaybackDistanceM] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const tracks = useMemo(
+    () => (trackPoints.status === 'ready' ? trackPoints.tracks : []),
+    [trackPoints],
+  );
+  const playbackPath = useMemo(() => buildPlaybackPath(tracks), [tracks]);
+  const playbackData = useMemo(
+    () =>
+      playbackFeature(
+        playbackDistanceM === null
+          ? null
+          : coordAtDistance(playbackPath, playbackDistanceM),
+      ),
+    [playbackDistanceM, playbackPath],
+  );
+
+  const playPath = useCallback(() => {
+    if (playbackPath.totalM <= 0) return;
+    if (animationRef.current !== null) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    setIsPlaying(true);
+    setPlaybackDistanceM(0);
+
+    const speedMPerMs = kmhToMetersPerMs(PLAYBACK_SPEED_KMH);
+    let startMs: number | null = null;
+    const tick = (nowMs: number) => {
+      startMs ??= nowMs;
+      const distanceM = (nowMs - startMs) * speedMPerMs;
+      setPlaybackDistanceM(Math.min(distanceM, playbackPath.totalM));
+
+      if (distanceM < playbackPath.totalM) {
+        animationRef.current = requestAnimationFrame(tick);
+      } else {
+        animationRef.current = null;
+        setIsPlaying(false);
+      }
+    };
+
+    animationRef.current = requestAnimationFrame(tick);
+  }, [playbackPath]);
+
+  useEffect(
+    () => () => {
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    },
+    [],
+  );
 
   // 初期化はマウント時に 1 回だけ。
   useEffect(() => {
@@ -94,20 +241,87 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+      style: STAMEN_TERRAIN_STYLE_URL,
       center: [initialCoords.longitude, initialCoords.latitude],
       zoom: 14,
+      maxBounds: buildMapBounds(),
     });
     mapRef.current = map;
 
     // 半径バンド (自宅中心の同心円) をスタイル ready 時に追加。
     map.on('load', () => {
-      const features = RADIUS_BANDS_M.map((r) => circleAsPolygon(HOME, r));
-      map.addSource('bands', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features },
+      const outerMask = buildOuterMaskPolygon();
+      addGeoJsonSource(map, 'fog-outside', {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [outerMask.outer, outerMask.hole],
+            },
+            properties: {},
+          },
+        ],
       });
-      map.addLayer({
+      addLayerOnce(map, {
+        id: 'fog-outside',
+        type: 'fill',
+        source: 'fog-outside',
+        paint: {
+          'fill-color': FOG_STYLE.outsideFillColor,
+          'fill-opacity': 1,
+        },
+      });
+
+      addGeoJsonSource(
+        map,
+        'fog-hidden',
+        multiPolygonFeatureCollection(
+          buildFogHexLayers([]).hiddenHexes.map((hex) => hex.polygon),
+        ),
+      );
+      addLayerOnce(map, {
+        id: 'fog-hidden',
+        type: 'fill',
+        source: 'fog-hidden',
+        paint: {
+          'fill-color': FOG_STYLE.hiddenFillColor,
+          'fill-opacity': 1,
+        },
+      });
+
+      addGeoJsonSource(map, 'fog-revealed-edge', {
+        type: 'FeatureCollection',
+        features: [],
+      });
+      addLayerOnce(map, {
+        id: 'fog-revealed-edge-soft',
+        type: 'line',
+        source: 'fog-revealed-edge',
+        paint: {
+          'line-color': FOG_STYLE.edgeSoftColor,
+          'line-width': FOG_STYLE.edgeSoftWidth,
+          'line-blur': 12,
+        },
+      });
+      addLayerOnce(map, {
+        id: 'fog-revealed-edge',
+        type: 'line',
+        source: 'fog-revealed-edge',
+        paint: {
+          'line-color': FOG_STYLE.edgeColor,
+          'line-width': FOG_STYLE.edgeWidth,
+          'line-blur': 1,
+        },
+      });
+
+      const features = RADIUS_BANDS_M.map((r) => circleAsPolygon(HOME, r));
+      addGeoJsonSource(map, 'bands', {
+        type: 'FeatureCollection',
+        features,
+      });
+      addLayerOnce(map, {
         id: 'bands-outline',
         type: 'line',
         source: 'bands',
@@ -118,49 +332,46 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
         },
       });
 
-      map.addSource('roads-past', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+      addGeoJsonSource(map, 'band-labels', {
+        type: 'FeatureCollection',
+        features: RADIUS_BANDS_M.map((r) => radiusLabelFeature(HOME, r)),
       });
-      map.addLayer({
-        id: 'roads-past',
-        type: 'line',
-        source: 'roads-past',
+      addLayerOnce(map, {
+        id: 'band-labels',
+        type: 'symbol',
+        source: 'band-labels',
         layout: {
-          'line-cap': 'round',
-          'line-join': 'round',
+          'text-field': ['get', 'label'],
+          'text-size': 13,
+          'text-anchor': 'bottom',
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
         },
         paint: {
-          'line-color': WALKED_ROAD_STYLE.pastColor,
-          'line-width': WALKED_ROAD_STYLE.strokeWidth,
-          'line-opacity': 1,
+          'text-color': RADIUS_BAND_STYLE.strokeColor,
+          'text-halo-color': 'rgba(5, 22, 52, 0.95)',
+          'text-halo-width': 2,
         },
       });
 
-      map.addSource('roads-today', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-      map.addLayer({
-        id: 'roads-today',
-        type: 'line',
-        source: 'roads-today',
-        layout: {
-          'line-cap': 'round',
-          'line-join': 'round',
-        },
+      addGeoJsonSource(map, 'playback-marker', playbackFeature(null));
+      addLayerOnce(map, {
+        id: 'playback-marker',
+        type: 'circle',
+        source: 'playback-marker',
         paint: {
-          'line-color': WALKED_ROAD_STYLE.todayColor,
-          'line-width': WALKED_ROAD_STYLE.strokeWidth,
-          'line-opacity': 1,
+          'circle-color': PLAYBACK_MARKER_STYLE.fillColor,
+          'circle-radius': PLAYBACK_MARKER_STYLE.radius,
+          'circle-stroke-color': PLAYBACK_MARKER_STYLE.strokeColor,
+          'circle-stroke-width': PLAYBACK_MARKER_STYLE.strokeWidth,
         },
       });
 
-      map.addSource('tracks', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
+      addGeoJsonSource(map, 'tracks', {
+        type: 'FeatureCollection',
+        features: [],
       });
-      map.addLayer({
+      addLayerOnce(map, {
         id: 'tracks-casing',
         type: 'line',
         source: 'tracks',
@@ -174,7 +385,7 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
           'line-opacity': 1,
         },
       });
-      map.addLayer({
+      addLayerOnce(map, {
         id: 'tracks',
         type: 'line',
         source: 'tracks',
@@ -188,6 +399,15 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
           'line-opacity': 1,
         },
       });
+
+      moveLayerToTop(map, 'fog-hidden');
+      moveLayerToTop(map, 'fog-outside');
+      moveLayerToTop(map, 'fog-revealed-edge-soft');
+      moveLayerToTop(map, 'fog-revealed-edge');
+      moveLayerToTop(map, 'bands-outline');
+      moveLayerToTop(map, 'band-labels');
+      moveLayerToTop(map, 'playback-marker');
+      setIsFogReady(true);
     });
 
     return () => {
@@ -196,33 +416,28 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
     };
   }, [initialCoords.latitude, initialCoords.longitude]);
 
-  // coverage の更新を赤/緑の道路に反映。Native と同じく過去 → 今日の順で重ねる。
+  // 探索済み hex には何も重ねず、未探索 hex だけ黒くする。
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!coverage) return;
 
     const apply = () => {
-      const pastFeatures = coverage.roads.flatMap((rc) =>
-        lineFeatures(rc.walkedPastSegments),
+      const tracks = trackPoints.status === 'ready' ? trackPoints.tracks : [];
+      const { hiddenHexes, revealedHexes } = buildFogHexLayers(tracks);
+      const hiddenData = multiPolygonFeatureCollection(
+        hiddenHexes.map((hex) => hex.polygon),
       );
-      const todayFeatures = coverage.roads.flatMap((rc) =>
-        lineFeatures(rc.walkedTodaySegments),
+      const edgeData = multiLineFeatureCollection(
+        buildFogBoundaryEdges(revealedHexes),
       );
-
-      setGeoJsonSource(map, 'roads-past', {
-        type: 'FeatureCollection',
-        features: pastFeatures,
-      });
-      setGeoJsonSource(map, 'roads-today', {
-        type: 'FeatureCollection',
-        features: todayFeatures,
-      });
+      setGeoJsonSource(map, 'fog-hidden', hiddenData);
+      setGeoJsonSource(map, 'fog-revealed-edge', edgeData);
+      setIsFogReady(true);
     };
 
     if (map.isStyleLoaded()) apply();
     else map.once('load', apply);
-  }, [coverage]);
+  }, [trackPoints]);
 
   // tracks の更新を滑らかな経路線として反映。
   useEffect(() => {
@@ -242,10 +457,74 @@ export function Map({ initialCoords, coverage, trackPoints }: MapProps) {
     else map.once('load', apply);
   }, [trackPoints]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      setGeoJsonSource(map, 'playback-marker', playbackData);
+    };
+
+    if (map.isStyleLoaded()) apply();
+    else map.once('load', apply);
+  }, [playbackData]);
+
   return (
-    <div
-      ref={containerRef}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      />
+      {!isFogReady && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: FOG_STYLE.hiddenFillColor,
+          }}
+        />
+      )}
+      <button
+        aria-label={isPlaying ? '経路を再生中' : '経路を再生'}
+        disabled={playbackPath.totalM <= 0}
+        onClick={playPath}
+        style={{
+          position: 'absolute',
+          left: 24,
+          bottom: 24,
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          border: '1px solid rgba(96, 210, 255, 0.45)',
+          background: 'rgba(7, 20, 44, 0.92)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 12px rgba(96, 210, 255, 0.28)',
+          opacity: playbackPath.totalM <= 0 ? 0.45 : 1,
+          cursor: playbackPath.totalM <= 0 ? 'default' : 'pointer',
+        }}
+      >
+        <span
+          style={
+            isPlaying
+              ? {
+                  width: 15,
+                  height: 15,
+                  borderRadius: 2,
+                  background: '#60D2FF',
+                }
+              : {
+                  width: 0,
+                  height: 0,
+                  marginLeft: 4,
+                  borderTop: '9px solid transparent',
+                  borderBottom: '9px solid transparent',
+                  borderLeft: '15px solid #60D2FF',
+                }
+          }
+        />
+      </button>
+    </>
   );
 }

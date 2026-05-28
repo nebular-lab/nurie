@@ -12,30 +12,22 @@ import { Map } from '@/lib/components/Map';
 import { SignInModal } from '@/lib/components/SignInModal';
 import { StatusBadge } from '@/lib/components/StatusBadge';
 import { TrackingToggleButton } from '@/lib/components/TrackingToggleButton';
-import { BUFFER_M } from '@/lib/constants';
 import { useAuthSession } from '@/lib/hooks/useAuthSession';
-import { useCoverage } from '@/lib/hooks/useCoverage';
 import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
 import { useLocationTracking } from '@/lib/hooks/useLocationTracking';
-import { useWalkableRoads } from '@/lib/hooks/useWalkableRoads';
 import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
 import { useSyncTask } from '@/lib/hooks/useSyncTask';
 
 const isWeb = Platform.OS === 'web';
+const MAP_BUTTON_BOTTOM_OFFSET = 24;
 
 export default function Index() {
   const initial = useInitialLocation();
   const insets = useSafeAreaInsets();
   const trackPoints = useStoredTrackPoints();
-  const roads = useWalkableRoads();
   const { state: tracking, start, stop } = useLocationTracking();
   const auth = useAuthSession();
   const sync = useSyncTask(auth.status === 'signed-in' ? auth.user.id : null);
-  const coverage = useCoverage(
-    trackPoints.status === 'ready' ? trackPoints.points : null,
-    roads.status === 'ready' ? roads.list : null,
-    BUFFER_M,
-  );
 
   if (initial.status === 'loading') {
     return <LoadingScreen />;
@@ -54,7 +46,6 @@ export default function Index() {
     <>
       <Map
         initialCoords={initial.coords}
-        coverage={coverage}
         trackPoints={trackPoints}
       />
 
@@ -66,10 +57,8 @@ export default function Index() {
         ]}
       >
         <StatusBadge
-          roads={roads}
           tracking={tracking}
           trackPoints={trackPoints}
-          coverage={coverage}
         />
         {sync.lastError && (
           <Text style={styles.syncError}>同期エラー: {sync.lastError}</Text>
@@ -83,7 +72,7 @@ export default function Index() {
 
       {!isWeb && (
         <TrackingToggleButton
-          bottom={insets.bottom + 32}
+          bottom={insets.bottom + MAP_BUTTON_BOTTOM_OFFSET}
           isEnabled={tracking.isEnabled}
           disabled={tracking.status === 'starting'}
           onPress={() => {
@@ -167,14 +156,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    backgroundColor: 'rgba(6, 18, 42, 0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 210, 255, 0.32)',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    shadowColor: '#000',
+    shadowColor: '#60D2FF',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
     elevation: 3,
     gap: 4,
   },
@@ -186,10 +177,10 @@ const styles = StyleSheet.create({
   },
   syncError: {
     fontSize: 12,
-    color: '#c0392b',
+    color: '#FF8FAF',
   },
   syncInfo: {
     fontSize: 12,
-    color: '#666',
+    color: '#B9EFFF',
   },
 });

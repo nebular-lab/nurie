@@ -1,15 +1,12 @@
 // 自宅座標と達成率エリアの設定。
 // 自宅で使う場合は HOME を書き換えて再ビルドする。
-// HOME と AREA_RADIUS_M を変更したら lib/walkableRoadsData.json も再生成すること
-// (現在の値は scripts で Overpass から取得したスナップショット)。
 export const HOME = {
   lat: 35.890076,
   lng: 139.469982,
 };
 
 export const AREA_RADIUS_M = 5000; // 自宅から何 m を達成率対象とするか
-export const BUFFER_M = 12; // 道路から何 m 以内に GPS 点があれば「歩いた」扱いとするか
-export const COVERAGE_SAMPLE_SPACING_M = 4; // 道路サンプリング間隔 (細かいほど精度↑、計算↓)
+export const FOG_HEX_RADIUS_M = 90; // 探索済み領域を表す hex の半径
 
 // 自宅からの半径バンド (m)。歩行率の集計と地図上の同心円描画に使う。
 // バンドはネスト関係 (1km ⊂ 3km ⊂ 5km)。

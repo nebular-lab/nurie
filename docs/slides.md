@@ -32,7 +32,7 @@ style: |
 
 # nurie
 
-歩いた道を塗っていく散歩アプリ
+歩いた経路で地図を明るくしていく散歩アプリ
 
 <div class="columns">
 <div>
@@ -40,20 +40,20 @@ style: |
 ## 何をするアプリか
 
 - iPhone で散歩中の GPS を記録する
-- 家の周りの道路データと照合する
-- 歩いた道を地図上で色分けする
-- Web でも記録済みの道を見る
+- 記録を 10 分単位の経路として保存する
+- 歩いた経路の周辺 hex パネルを明るくする
+- 1km / 3km / 5km の探索率を見る
 
 </div>
 <div>
 
-## 見えるもの
+## 今の見せ方
 
-- 現在地
-- 1km / 3km / 5km の範囲
-- 今日歩いた道
-- 過去に歩いた道
-- 道路ごとの達成率
+- 地図背景: Stamen Terrain
+- 未探索: 濃いネイビーでマスク
+- 探索済み: 地図がそのまま見える
+- 境界: 青く光る線
+- 経路: 細いグリーンの path
 
 </div>
 </div>
@@ -69,18 +69,47 @@ style: |
 
 - 最近、散歩をしている
 - 近所にも歩いたことがない道がある
-- どの道が未踏なのかは、普通の地図ではわからない
+- どの場所を歩いたかは、普通の地図ではわかりにくい
 
 </div>
 <div>
 
 ## 作りたい体験
 
-- 未踏の道が見える
-- そこに向かって散歩する
-- 歩いた道が塗られる
-- 達成率が少し上がる
-- 活動範囲が自然に広がる
+- 暗い地図を少しずつ明るくする
+- 歩いた範囲が広がっていく
+- 1km / 3km / 5km の達成率が上がる
+- 散歩の目的地を自然に決められる
+
+</div>
+</div>
+
+---
+
+# 探索の表現
+
+GPS 点を経路 `LineString` として扱い、経路が通った hex パネルを探索済みにする。
+
+<div class="columns">
+<div>
+
+## 経路
+
+- 位置情報を時系列の点として受け取る
+- 10 分単位で `LineString` にまとめる
+- 地図上には細いグリーンの path として表示する
+- 再生ボタンで古い経路から順に移動を再生する
+
+</div>
+<div>
+
+## hex パネル
+
+- 5km 圏内を六角形に分割する
+- 経路が通った hex を探索済みにする
+- 未探索 hex は濃いネイビーで隠す
+- 明暗境界だけ青く光らせる
+- 1/3/5km 内の探索済み hex 割合を表示する
 
 </div>
 </div>
@@ -92,18 +121,20 @@ style: |
 - iOS アプリ: Expo / React Native
 - 位置情報取得: `expo-location`
 - バックグラウンド実行: `expo-task-manager`
-- ローカル保存: SQLite
-- クラウド同期: Supabase
-- iOS 地図: `react-native-maps`
-- Web 地図: MapLibre GL JS
-- 道路データ: `lib/walkableRoadsData.json`
-- 道路データ生成: `scripts/fetch-gsi-roads.mjs`
+- 送信前キュー: SQLite `queued_points`
+- クラウド保存: Supabase `tracks`
+- 地図描画: MapLibre Native / MapLibre GL JS
+- 地図スタイル: Stadia Maps `stamen_terrain`
+- 探索領域: `lib/fogHex.ts`
 
 ---
 
 # バックグラウンド位置情報
 
-`TaskManager` に location task を登録して、OS から渡される GPS 更新を SQLite に保存する。
+`TaskManager` に location task を登録し、OS から渡される GPS 更新を SQLite の送信前キューへ保存する。
+
+<div class="columns">
+<div>
 
 ```ts
 import * as Location from 'expo-location';
@@ -128,46 +159,8 @@ TaskManager.defineTask<LocationTaskData>(
 );
 ```
 
----
-
-# TaskManager はいつ動くか
-
-`Location.startLocationUpdatesAsync(TASK_NAME, options)` を呼ぶと、OS が位置更新を監視し始める。
-
-<div class="columns">
-<div>
-
-## 実行タイミング
-
-- アプリが foreground のとき
-- アプリが background のとき
-- OS が位置更新をまとめて配送したとき
-- `distanceInterval` などの条件を満たしたとき
-
 </div>
 <div>
-
-## `data.locations` の中身
-
-- 1回の task 実行で複数点が来ることがある
-- 各 `loc` は緯度・経度・timestamp を持つ
-
-```ts
-loc.coords.latitude
-loc.coords.longitude
-loc.timestamp
-```
-
-</div>
-</div>
-
-実装: `lib/locationTask.native.ts`
-
----
-
-# startLocationUpdatesAsync
-
-`startLocationUpdatesAsync` は、指定した task 名に対して継続的な位置更新を開始する API。
 
 ```ts
 await Location.startLocationUpdatesAsync(TASK_NAME, {
@@ -179,108 +172,48 @@ await Location.startLocationUpdatesAsync(TASK_NAME, {
 });
 ```
 
-<div class="small">
-
-- `accuracy`: GPS 精度。`Highest` は精度優先
-- `activityType`: 移動種別。`Fitness` は徒歩・運動向け
-- `pausesUpdatesAutomatically`: iOS に自動停止させるか。`false` で止まりにくくする
-- `showsBackgroundLocationIndicator`: background 取得中の青い表示。`true` で OS に明示する
-- `distanceInterval`: 何 m 動いたら更新するか。`10` は約 10m ごと
+- `Highest`: 精度優先
+- `Fitness`: 徒歩・運動向け
+- `false`: iOS に自動停止させにくくする
+- `true`: background 取得中を OS に明示
+- `10`: 約 10m ごとに更新
 
 </div>
+</div>
+
+実装: `lib/locationTask.native.ts`
 
 ---
 
-# 道路データをどう作るか
+# 経路として Supabase に同期する
 
-`scripts/fetch-gsi-roads.mjs` で、国土地理院のベクトルタイルから道路中心線を取得して JSON にする。
+SQLite は正本ではなく、送信前の点を一時的に持つキュー。
 
-```bash
-node scripts/fetch-gsi-roads.mjs
+```sql
+CREATE TABLE IF NOT EXISTS queued_points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  recorded_at_ms INTEGER NOT NULL
+);
 ```
 
-生成の流れ:
-
-1. `HOME` から半径 5km を覆う z=15 のタイル範囲を計算
-2. GSI の PBF タイルを取得
-3. `road` レイヤーから道路中心線の `ftCode` だけ採用
-4. タイル境界の重複を `feature.id` で除去
-5. 半径 5km 以内に触れる道路だけ残す
-6. 端点がつながる線を merge する
-7. `{ id, highway, coords }` で `walkableRoadsData.json` に書き出す
-
----
-
-# walkableRoadsData.json
-
-アプリに同梱している道路中心線データ。現在は 12,675 本の道路が入っている。
-
-<div class="columns">
-<div>
-
-## データ型
+10 分単位で点をまとめ、Supabase の `tracks` に `LineString` として保存する。
 
 ```ts
-type RawWalkableRoad = {
-  id: number;
-  highway: string;
-  coords: [number, number][];
-};
-```
-
-`coords` は GeoJSON と同じ `[lng, lat]`。
-
-</div>
-<div>
-
-## 例
-
-```json
-{
-  "id": 0,
-  "highway": "primary",
-  "coords": [
-    [139.416718, 35.901948],
-    [139.416665, 35.901976],
-    [139.416528, 35.902057]
-  ]
+path: {
+  type: 'LineString',
+  coordinates: sorted.map((p) => [p.lng, p.lat]),
 }
 ```
 
-</div>
-</div>
-
-起動時に `totalM`, `bbox`, `minDistFromHome` を追加計算して使う。
+同期後は SQLite の送信済み点を削除する。
 
 ---
 
-# Supabase 同期
+# MapLibre で地図を描く
 
-同期は「散歩中の記録を邪魔しない」ことを優先する。
-
-- GPS はまず SQLite に保存する
-- 10分単位で未同期データをまとめて Supabase に送る
-- 送信できた点だけ `synced = 1` にする
-- Web は Supabase の `tracks` を読む
-
-```ts
-await supabase.from('tracks').upsert(rows, {
-  onConflict: 'user_id,started_at,ended_at',
-  ignoreDuplicates: true,
-});
-```
-
-同じ点が複数回送られても、`upsert` で重複を避ける。
-
----
-
-# iOS と Web の地図を切り替える
-
-同じ `Map` import でも、platform file によって別の実装が選ばれる。
-
-```ts
-import { Map } from '@/lib/components/Map';
-```
+iOS も Web も MapLibre 系に揃えている。
 
 <div class="columns">
 <div>
@@ -292,9 +225,8 @@ Map.tsx
   -> Map.native.tsx
 ```
 
-- `react-native-maps`
-- `MapView`
-- `UrlTile`
+- `@maplibre/maplibre-react-native`
+- `Camera` の `maxBounds` / `minZoom` / `maxZoom`
 - native の現在地表示
 
 </div>
@@ -307,12 +239,68 @@ Map.tsx
   -> Map.web.tsx
 ```
 
-- MapLibre GL JS
+- `maplibre-gl`
 - HTML の `<div>` に地図を描画
-- Supabase から読んだ点を表示
+- source / layer で表示順を制御
 
 </div>
 </div>
+
+地図背景は `https://tiles.stadiamaps.com/styles/stamen_terrain.json`。
+
+---
+
+# 六角形パネルで探索済み領域を表す
+
+5km 圏内を hex に分割し、経路が通った hex を探索済みにする。
+
+```ts
+function buildRevealedHexIds(tracks: Track[]): Set<string> {
+  const ids = new Set<string>();
+  for (const track of tracks) {
+    for (const coord of track.path.coordinates) {
+      const axial = lngLatToAxial(coord);
+      const hex = axialToFogHex(axial);
+      if (distanceFromHomeM(hex.center) <= AREA_RADIUS_M + FOG_HEX_RADIUS_M) {
+        ids.add(hex.id);
+      }
+    }
+  }
+  return ids;
+}
+```
+
+- 未探索 hex: 濃いネイビーで塗る
+- 探索済み hex: 塗らないので地図が見える
+- 明暗境界: 探索済み hex の外周だけ青く光らせる
+
+---
+
+# 上部の % は hex タイルの割合
+
+半径内に入る hex パネルのうち、探索済みになった枚数の割合を出す。
+
+```ts
+export function aggregateFogCoverageByBands(
+  tracks: Track[],
+  bandsM: readonly number[],
+) {
+  return bandsM.map((radiusM) => {
+    let totalTiles = 0;
+    let revealedTiles = 0;
+
+    for (const hex of buildAllFogHexes()) {
+      if (distanceFromHomeM(hex.center) <= radiusM) {
+        totalTiles++;
+        if (revealedIds.has(hex.id)) revealedTiles++;
+      }
+    }
+    return { totalTiles, revealedTiles };
+  });
+}
+```
+
+`<= radiusM` で判定するので、円のちょうど上にある hex も含める。
 
 ---
 
@@ -321,20 +309,23 @@ Map.tsx
 <div class="columns">
 <div>
 
-## Expo Go
+## Web
 
-- 手軽に UI は確認できる
-- background location は確認できない
-- native module の挙動確認にも限界がある
+```bash
+pnpm start --web
+```
 
-## 実機 build
+- 開発中は自動更新される
+- MapLibre GL JS で見た目を確認しやすい
+
+## iOS 実機
 
 ```bash
 pnpm ios:release
 ```
 
-- 実機に Release build を入れて確認する
-- background 位置情報はここで見る
+- Expo Go では background location と native MapLibre を確認できない
+- 実機 build で確認する
 
 </div>
 <div>
@@ -345,10 +336,11 @@ pnpm ios:release
 - ローカルに Xcode 環境がなくても iOS build を作れる
 - 配布用 build の作成にも向く
 
-## App Store 向け
+## 注意点
 
-- Xcode で Archive
-- 署名・権限・位置情報文言を確認する
+- 位置情報の権限文言
+- background 位置情報の許可
+- Apple の署名設定
 
 </div>
 </div>
