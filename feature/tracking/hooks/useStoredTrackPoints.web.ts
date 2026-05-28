@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-import type { Point } from '../db';
-import { fetchRemoteTracks, tracksToPoints, type Track } from '../remoteTracks';
-import { supabase } from '../supabase';
+import type { Point } from '../effect/queuedPointStore';
+import { fetchRemoteTracks } from '../effect/remoteTrackStore';
+import type { Track } from '../types';
+import { tracksToPoints } from '../utils/trackTransform';
+import { supabase } from '@/shared/effect/supabase/supabase';
 
 export type StoredTrackPointsState =
   | { status: 'loading' }

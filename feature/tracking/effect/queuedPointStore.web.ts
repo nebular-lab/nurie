@@ -1,6 +1,6 @@
 // Web では SQLite を使わず Supabase の tracks から直接読む (閲覧専用)。
 
-import { fetchRemoteTrackPoints } from './remoteTracks';
+import { fetchRemoteTrackPoints } from './remoteTrackStore';
 
 export type Point = {
   id: number;

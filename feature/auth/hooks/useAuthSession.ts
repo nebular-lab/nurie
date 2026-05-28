@@ -1,7 +1,7 @@
 import type { User } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
 
-import { supabase } from '../supabase';
+import { supabase } from '@/shared/effect/supabase/supabase';
 
 export type AuthSessionState =
   | { status: 'loading' }

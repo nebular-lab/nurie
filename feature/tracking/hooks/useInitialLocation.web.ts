@@ -1,7 +1,7 @@
 // Web は閲覧専用なので、ブラウザに位置情報の許可を求めない。
 // 初期表示は自宅座標 (HOME) を即時返して地図中心にする。
 
-import { HOME } from '../constants';
+import { HOME } from '@/shared/constants/appConfig';
 
 export type InitialLocationState =
   | { status: 'loading' }

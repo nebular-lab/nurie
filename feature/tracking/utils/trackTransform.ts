@@ -1,34 +1,5 @@
-import type { Point } from './db';
-import { supabase } from './supabase';
-
-type Coord = [number, number];
-
-export type TrackPath = {
-  type: 'LineString';
-  coordinates: Coord[];
-};
-
-type TrackRow = {
-  id: string;
-  started_at: string;
-  ended_at: string;
-  path: unknown;
-};
-
-export type Track = {
-  id: string;
-  startedAt: number;
-  endedAt: number;
-  path: TrackPath;
-};
-
-export type TrackUploadRow = {
-  user_id: string;
-  started_at: string;
-  ended_at: string;
-  path: TrackPath;
-  point_count: number;
-};
+import type { Point } from '../effect/queuedPointStore';
+import type { Coord, RemoteTrackRow, Track, TrackUploadRow } from '../types';
 
 export function buildTrackUploadRow(
   userId: string,
@@ -50,20 +21,8 @@ export function buildTrackUploadRow(
   };
 }
 
-export async function fetchRemoteTrackPoints(): Promise<Point[]> {
-  return tracksToPoints(await fetchRemoteTracks());
-}
-
-export async function fetchRemoteTracks(): Promise<Track[]> {
-  const { data, error } = await supabase
-    .from('tracks')
-    .select('id, started_at, ended_at, path')
-    .order('started_at', { ascending: true });
-
-  if (error) throw error;
-  if (!data) return [];
-
-  return data.flatMap(trackRowToTrack);
+export function trackRowsToTracks(rows: RemoteTrackRow[]): Track[] {
+  return rows.flatMap(trackRowToTrack);
 }
 
 export function tracksToPoints(tracks: Track[]): Point[] {
@@ -76,7 +35,7 @@ export function reindexPoints(points: Point[]): Point[] {
     .map((p, i) => ({ ...p, id: i + 1 }));
 }
 
-function trackRowToTrack(row: TrackRow): Track[] {
+function trackRowToTrack(row: RemoteTrackRow): Track[] {
   const coords = readLineStringCoords(row.path);
   const startedAt = Date.parse(row.started_at);
   const endedAt = Date.parse(row.ended_at);

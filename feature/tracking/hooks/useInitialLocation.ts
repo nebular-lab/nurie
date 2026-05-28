@@ -5,7 +5,7 @@
 import * as Location from 'expo-location';
 import { useEffect, useState } from 'react';
 
-import { getCurrentCoords } from '../location';
+import { getCurrentCoords } from '../effect/location';
 
 export type InitialLocationState =
   | { status: 'loading' }

@@ -1,5 +1,6 @@
-import { haversineMeters } from './geo';
-import type { Track } from './remoteTracks';
+import type { Track } from '@/feature/tracking/types';
+import { haversineMeters } from '@/shared/utils/geo';
+
 import { smoothCoords } from './smoothPath';
 
 export type PlaybackCoord = [number, number];

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,31 +10,10 @@ import {
   View,
 } from 'react-native';
 
-import { supabase } from '../supabase';
+import { useSignInForm } from '../hooks/useSignInForm';
 
 export function SignInModal({ visible }: { visible: boolean }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const onSubmit = async () => {
-    setSubmitting(true);
-    setError(null);
-    const { error: e } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    setSubmitting(false);
-    if (e) {
-      setError(e.message);
-      return;
-    }
-    // 成功すると useAuthSession の onAuthStateChange で signed-in になり、
-    // この Modal は親側で visible=false になって自動的に閉じる。
-  };
-
-  const canSubmit = email.length > 0 && password.length > 0 && !submitting;
+  const form = useSignInForm();
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet">
@@ -55,9 +33,9 @@ export function SignInModal({ visible }: { visible: boolean }) {
             autoCorrect={false}
             keyboardType="email-address"
             textContentType="emailAddress"
-            value={email}
-            onChangeText={setEmail}
-            editable={!submitting}
+            value={form.email}
+            onChangeText={form.setEmail}
+            editable={!form.submitting}
           />
           <TextInput
             style={styles.input}
@@ -66,17 +44,17 @@ export function SignInModal({ visible }: { visible: boolean }) {
             autoCapitalize="none"
             autoCorrect={false}
             textContentType="password"
-            value={password}
-            onChangeText={setPassword}
-            editable={!submitting}
+            value={form.password}
+            onChangeText={form.setPassword}
+            editable={!form.submitting}
           />
-          {error && <Text style={styles.error}>{error}</Text>}
+          {form.error && <Text style={styles.error}>{form.error}</Text>}
           <Pressable
-            style={[styles.button, !canSubmit && styles.buttonDisabled]}
-            onPress={onSubmit}
-            disabled={!canSubmit}
+            style={[styles.button, !form.canSubmit && styles.buttonDisabled]}
+            onPress={form.submit}
+            disabled={!form.canSubmit}
           >
-            {submitting ? (
+            {form.submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.buttonLabel}>ログイン</Text>

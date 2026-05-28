@@ -5,8 +5,8 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useState } from 'react';
 
-import { getTrackingEnabled, setTrackingEnabled } from '../db';
-import { startTracking, stopTracking } from '../locationTask';
+import { getTrackingEnabled, setTrackingEnabled } from '../effect/queuedPointStore';
+import { startTracking, stopTracking } from '../effect/locationTask';
 
 export type LocationTrackingState =
   | { status: 'starting'; isEnabled: false }

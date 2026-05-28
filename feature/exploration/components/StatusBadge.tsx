@@ -4,12 +4,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useMemo } from 'react';
+import type { LocationTrackingState } from '@/feature/tracking/hooks/useLocationTracking';
+import type { StoredTrackPointsState } from '@/feature/tracking/hooks/useStoredTrackPoints';
+import { RADIUS_BANDS_M } from '@/shared/constants/appConfig';
 
-import { RADIUS_BANDS_M } from '../constants';
-import { aggregateFogCoverageByBands } from '../fogHex';
-import type { LocationTrackingState } from '../hooks/useLocationTracking';
-import type { StoredTrackPointsState } from '../hooks/useStoredTrackPoints';
+import { useFogCoverage } from '../hooks/useFogCoverage';
 
 export function StatusBadge({
   tracking,
@@ -18,13 +17,7 @@ export function StatusBadge({
   tracking: LocationTrackingState;
   trackPoints: StoredTrackPointsState;
 }) {
-  const totals = useMemo(
-    () =>
-      trackPoints.status === 'ready'
-        ? aggregateFogCoverageByBands(trackPoints.tracks, RADIUS_BANDS_M)
-        : null,
-    [trackPoints],
-  );
+  const totals = useFogCoverage(trackPoints);
 
   if (tracking.status === 'error') {
     return <ErrorRow message={`記録エラー: ${tracking.message}`} />;

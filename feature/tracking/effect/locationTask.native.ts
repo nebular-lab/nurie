@@ -2,10 +2,11 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { DeviceEventEmitter } from 'react-native';
 
-import { AREA_RADIUS_M, HOME } from './constants';
-import { insertPoint } from './db';
-import { haversineMeters } from './geo';
-import { POINTS_CHANGED_EVENT } from './pointEvents';
+import { AREA_RADIUS_M, HOME } from '@/shared/constants/appConfig';
+import { haversineMeters } from '@/shared/utils/geo';
+
+import { insertPoint } from './queuedPointStore';
+import { POINTS_CHANGED_EVENT } from '../utils/pointEvents';
 
 const TASK_NAME = 'nurie-location-tracking';
 

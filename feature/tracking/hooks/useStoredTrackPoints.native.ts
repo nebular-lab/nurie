@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { AppState, DeviceEventEmitter } from 'react-native';
 
-import { getAllPoints, type Point } from '../db';
-import { POINTS_CHANGED_EVENT } from '../pointEvents';
+import { getAllPoints, type Point } from '../effect/queuedPointStore';
+import { POINTS_CHANGED_EVENT } from '../utils/pointEvents';
 import {
   fetchRemoteTracks,
-  reindexPoints,
-  tracksToPoints,
-  type Track,
-} from '../remoteTracks';
-import { supabase } from '../supabase';
+} from '../effect/remoteTrackStore';
+import { supabase } from '@/shared/effect/supabase/supabase';
+import type { Track } from '../types';
+import { reindexPoints, tracksToPoints } from '../utils/trackTransform';
 
 // foreground 中の追記イベントは連続発火するので、まとめて 1 回だけ DB を読む。
 const RELOAD_DEBOUNCE_MS = 1000;

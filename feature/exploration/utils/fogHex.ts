@@ -1,5 +1,5 @@
-import { AREA_RADIUS_M, FOG_HEX_RADIUS_M, HOME } from './constants';
-import type { Track } from './remoteTracks';
+import { AREA_RADIUS_M, FOG_HEX_RADIUS_M, HOME } from '@/shared/constants/appConfig';
+import type { Track } from '@/feature/tracking/types';
 
 type Coord = [number, number];
 

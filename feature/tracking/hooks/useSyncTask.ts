@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, DeviceEventEmitter, Platform } from 'react-native';
 
-import { deleteQueuedPoints, getUnsyncedPoints, type Point } from '../db';
-import { POINTS_CHANGED_EVENT } from '../pointEvents';
-import { buildTrackUploadRow } from '../remoteTracks';
-import { supabase } from '../supabase';
+import { deleteQueuedPoints, getUnsyncedPoints, type Point } from '../effect/queuedPointStore';
+import { buildTrackUploadRow } from '../utils/trackTransform';
+import { POINTS_CHANGED_EVENT } from '../utils/pointEvents';
+import { supabase } from '@/shared/effect/supabase/supabase';
 
 // 10 分間隔で tracks に同期する。バックグラウンドは未対応 (foreground 中だけ動く)。
 // 散歩中はローカル SQLite の queued_points に溜まり、アプリを開いた時にまとめて送る。

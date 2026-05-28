@@ -8,15 +8,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Map } from '@/lib/components/Map';
-import { SignInModal } from '@/lib/components/SignInModal';
-import { StatusBadge } from '@/lib/components/StatusBadge';
-import { TrackingToggleButton } from '@/lib/components/TrackingToggleButton';
-import { useAuthSession } from '@/lib/hooks/useAuthSession';
-import { useInitialLocation } from '@/lib/hooks/useInitialLocation';
-import { useLocationTracking } from '@/lib/hooks/useLocationTracking';
-import { useStoredTrackPoints } from '@/lib/hooks/useStoredTrackPoints';
-import { useSyncTask } from '@/lib/hooks/useSyncTask';
+import { SignInModal } from '@/feature/auth/components/SignInModal';
+import { useAuthSession } from '@/feature/auth/hooks/useAuthSession';
+import { Map } from '@/feature/exploration/components/Map';
+import { StatusBadge } from '@/feature/exploration/components/StatusBadge';
+import { TrackingToggleButton } from '@/feature/tracking/components/TrackingToggleButton';
+import { useInitialLocation } from '@/feature/tracking/hooks/useInitialLocation';
+import { useLocationTracking } from '@/feature/tracking/hooks/useLocationTracking';
+import { useStoredTrackPoints } from '@/feature/tracking/hooks/useStoredTrackPoints';
+import { useSyncTask } from '@/feature/tracking/hooks/useSyncTask';
 
 const isWeb = Platform.OS === 'web';
 const MAP_BUTTON_BOTTOM_OFFSET = 24;
