@@ -1,3 +1,34 @@
-// TypeScript の解決用ダミー entry。
-// 実行時は Metro が supabase.native.ts / supabase.web.ts を Platform 別に優先解決する。
-export * from './supabase.native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient, processLock } from '@supabase/supabase-js';
+import { AppState, Platform } from 'react-native';
+import 'react-native-url-polyfill/auto';
+
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabasePublishableKey =
+  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error(
+    'EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY が .env に設定されていません',
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+  auth: {
+    ...(Platform.OS !== 'web' ? { storage: AsyncStorage } : {}),
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+    lock: processLock,
+  },
+});
+
+if (Platform.OS !== 'web') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh();
+    } else {
+      supabase.auth.stopAutoRefresh();
+    }
+  });
+}
